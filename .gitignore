@@ -1,0 +1,43 @@
+# Godot 4+ specific ignores
+.godot/
+.nomedia
+
+# Godot-specific ignores
+*.translation
+
+# Mono-specific ignores
+.mono/
+data_*/
+mono_crash.*.json
+
+# Exported builds & packages
+build/
+builds/
+export/
+exports/
+*.exe
+*.pck
+*.apk
+*.aab
+*.dmg
+*.zip
+*.tar.gz
+
+# Imported / generated assets
+*.import
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment & local secrets
+.env
+.env.local
