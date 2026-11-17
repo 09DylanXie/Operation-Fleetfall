@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="MapConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/map_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+map_size = Vector2(4200, 2400)
+cell_size = 32.0
+island_clearance = 40.0
+base_margin_x = 420.0
+minor_per_side = 1
+major_per_side = 1
+center_major = true
+cover_per_side = 3
+minor_radius = 80.0
+major_radius = 130.0
+cover_radius_min = 70.0
+cover_radius_max = 150.0
+minor_shallow_radius = 330.0
+feature_gap = 150.0
+base_clear_radius = 420.0

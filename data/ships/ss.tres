@@ -1,0 +1,42 @@
+[gd_resource type="Resource" script_class="ShipStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/ship_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ship_class = 1
+code = "SS"
+display_name = "Submarine"
+gold_cost = 150
+steel_cost = 75
+build_time = 20.0
+required_shipyard_tier = 1
+speed_factor = 0.5
+turn_rate_deg = 60.0
+base_armor = 0.0
+max_hp = 400.0
+hull_length = 40.0
+hull_width = 10.0
+shallow_draft = true
+spotting_range = 0.0
+is_submarine = true
+detects_submarines = false
+gun_mounts = 0
+shells_per_mount = 0
+shell_damage = 0.0
+shell_speed = 300.0
+gun_range = 0.0
+fire_interval = 20.0
+dispersion_deg = 0.0
+penetration = 0.0
+mount_offsets = PackedFloat32Array()
+mount_facings_deg = PackedFloat32Array()
+mount_arc_half_deg = 150.0
+torpedo_mode = 2
+torpedoes_per_launch = 2
+torpedo_interval = 20.0
+torpedo_range = 900.0
+torpedo_spread_deg = 3.0
+squadrons_per_launch = 0
+plane_interval = 25.0
+plane_range = 0.0

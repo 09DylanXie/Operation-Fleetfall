@@ -1,0 +1,46 @@
+[gd_resource type="Resource" script_class="ShipStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/ship_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ship_class = 0
+code = "DD"
+display_name = "Destroyer"
+gold_cost = 100
+steel_cost = 50
+build_time = 15.0
+required_shipyard_tier = 1
+speed_factor = 1.0
+turn_rate_deg = 90.0
+base_armor = 0.0
+max_hp = 600.0
+hull_length = 48.0
+hull_width = 12.0
+shallow_draft = true
+spotting_range = 720.0
+is_submarine = false
+detects_submarines = true
+gun_mounts = 2
+shells_per_mount = 1
+shell_damage = 25.0
+shell_speed = 300.0
+gun_range = 480.0
+fire_interval = 4.0
+dispersion_deg = 0.6
+penetration = 1.0
+mount_offsets = PackedFloat32Array(13, -13)
+mount_facings_deg = PackedFloat32Array(0, 180)
+mount_arc_half_deg = 150.0
+torpedo_mode = 1
+torpedoes_per_launch = 2
+torpedo_interval = 30.0
+torpedo_range = 620.0
+torpedo_spread_deg = 5.0
+torpedo_speed_scale = 0.5
+depth_charge_range = 180.0
+depth_charge_damage = 100.0
+depth_charge_interval = 2.5
+squadrons_per_launch = 0
+plane_interval = 25.0
+plane_range = 0.0

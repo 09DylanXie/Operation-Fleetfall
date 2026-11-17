@@ -1,0 +1,43 @@
+[gd_resource type="Resource" script_class="ShipStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/ship_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ship_class = 3
+code = "CA"
+display_name = "Heavy Cruiser"
+gold_cost = 400
+steel_cost = 250
+build_time = 45.0
+required_shipyard_tier = 2
+speed_factor = 0.5
+turn_rate_deg = 45.0
+base_armor = 0.15
+max_hp = 2400.0
+hull_length = 82.0
+hull_width = 18.0
+shallow_draft = false
+spotting_range = 360.0
+is_submarine = false
+detects_submarines = false
+gun_mounts = 4
+shells_per_mount = 2
+shell_damage = 60.0
+shell_speed = 380.0
+gun_range = 740.0
+fire_interval = 5.333
+dispersion_deg = 0.8
+penetration = 3.0
+mount_offsets = PackedFloat32Array(29, 17, -17, -29)
+mount_facings_deg = PackedFloat32Array(0, 0, 180, 180)
+mount_arc_half_deg = 150.0
+torpedo_mode = 0
+torpedoes_per_launch = 0
+torpedo_interval = 30.0
+torpedo_range = 0.0
+torpedo_spread_deg = 0.0
+squadrons_per_launch = 0
+plane_interval = 25.0
+plane_range = 0.0
+aa_kill_chance = 0.2

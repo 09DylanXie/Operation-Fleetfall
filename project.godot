@@ -1,0 +1,45 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Operation: Fleetfall"
+config/description="2D WWII naval RTS: island territory control, line-of-sight cover and class-based fleet combat."
+run/main_scene="res://scenes/menu.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[debug]
+
+gdscript/warnings/untyped_declaration=2
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[layer_names]
+
+2d_physics/layer_1="Water/Terrain"
+2d_physics/layer_2="Shallow Water"
+2d_physics/layer_3="Islands (Hard Cover)"
+2d_physics/layer_4="Ships"
+2d_physics/layer_5="Projectiles"
+2d_physics/layer_6="Vision/Spotting"
+2d_physics/layer_7="Team 0 Hitbox"
+2d_physics/layer_8="Team 1 Hitbox"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.04, 0.11, 0.18, 1)

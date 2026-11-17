@@ -1,0 +1,43 @@
+[gd_resource type="Resource" script_class="ShipStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/ship_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ship_class = 2
+code = "CL"
+display_name = "Light Cruiser"
+gold_cost = 250
+steel_cost = 150
+build_time = 30.0
+required_shipyard_tier = 2
+speed_factor = 0.7
+turn_rate_deg = 60.0
+base_armor = 0.05
+max_hp = 1500.0
+hull_length = 68.0
+hull_width = 15.0
+shallow_draft = false
+spotting_range = 360.0
+is_submarine = false
+detects_submarines = false
+gun_mounts = 3
+shells_per_mount = 3
+shell_damage = 34.0
+shell_speed = 340.0
+gun_range = 620.0
+fire_interval = 4.0
+dispersion_deg = 0.7
+penetration = 2.0
+mount_offsets = PackedFloat32Array(21, 9, -21)
+mount_facings_deg = PackedFloat32Array(0, 0, 180)
+mount_arc_half_deg = 150.0
+torpedo_mode = 0
+torpedoes_per_launch = 0
+torpedo_interval = 30.0
+torpedo_range = 0.0
+torpedo_spread_deg = 0.0
+squadrons_per_launch = 0
+plane_interval = 25.0
+plane_range = 0.0
+aa_kill_chance = 0.2
