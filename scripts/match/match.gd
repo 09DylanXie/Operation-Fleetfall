@@ -80,6 +80,9 @@ var sim_time: float = 0.0
 var ships: Array[Ship] = []
 ## Living ships by Ship.net_id.
 var ships_by_id: Dictionary[int, Ship] = {}
+## Ships each side has launched from its yards this match, per class
+## (index team * ShipStats.ShipClass.size() + class). Drives the per-game class limits.
+var ships_launched: PackedInt32Array = PackedInt32Array()
 ## Replica: projectiles by Projectile.net_id.
 var net_projectiles: Dictionary[int, Projectile] = {}
 var bases: Array[HomeBase] = []
@@ -93,6 +96,8 @@ var player: PlayerController = null
 var camera: CameraRig = null
 var hud: HUD = null
 var fog: FogOverlay = null
+## Local player's move ripples and attack brackets (cosmetic, drawn above the fog).
+var order_feedback: OrderFeedback = null
 var local_team: int = 0
 var winner: int = -1
 var is_over: bool = false
@@ -217,6 +222,8 @@ func _setup_teams() -> void:
 		alliance.append(1000 + alliance.size())
 	eliminated.resize(team_count)
 	eliminated.fill(false)
+	ships_launched.resize(team_count * ShipStats.ShipClass.size())
+	ships_launched.fill(0)
 	_hostile_masks.clear()
 	for team: int in team_count:
 		var mask: int = 0
@@ -320,6 +327,9 @@ func _setup_ui() -> void:
 	fog.name = "Fog"
 	fog.setup(self)
 	add_child(fog)
+	order_feedback = OrderFeedback.new()
+	order_feedback.name = "OrderFeedback"
+	add_child(order_feedback)
 	camera = CameraRig.new()
 	camera.name = "Camera"
 	camera.setup(self)
@@ -404,6 +414,67 @@ func fleet_count(team: int) -> int:
 		if yard.team == team:
 			count += yard.pending_ship_orders()
 	return count
+
+
+## The side's fleet cap: the base cap plus a bonus for every Major island it owns (the
+## shipyard there need not be upgraded).
+func fleet_cap(team: int) -> int:
+	var balance: GameBalance = GameData.balance()
+	var cap: int = balance.fleet_cap
+	for island: Island in islands:
+		if island.kind == Island.Kind.MAJOR and island.owner_team == team and team >= 0:
+			cap += balance.major_island_fleet_bonus
+	return cap
+
+
+## Ships of `cls` the side has: Vector2i(all of them - afloat, on the slip and queued,
+## the unfinished part of those - on the slip and queued).
+func class_count(team: int, cls: ShipStats.ShipClass) -> Vector2i:
+	var total: int = 0
+	var unfinished: int = 0
+	for ship: Ship in ships:
+		if ship.team == team and ship.is_alive() and ship.stats.ship_class == cls:
+			total += 1
+			if ship.under_construction:
+				unfinished += 1
+	for yard: Shipyard in yards:
+		if yard.team != team:
+			continue
+		var skip_hull: bool = yard.hull != null
+		for order: Shipyard.BuildOrder in yard.queue:
+			if order.is_upgrade:
+				continue
+			if skip_hull:
+				# The head order's hull is already counted among the ships.
+				skip_hull = false
+				continue
+			if order.ship_class == cls:
+				total += 1
+				unfinished += 1
+	return Vector2i(total, unfinished)
+
+
+func launched_count(team: int, cls: ShipStats.ShipClass) -> int:
+	var at: int = team * ShipStats.ShipClass.size() + int(cls)
+	return ships_launched[at] if team >= 0 and at < ships_launched.size() else 0
+
+
+## A yard launched a finished ship.
+func record_launch(team: int, cls: ShipStats.ShipClass) -> void:
+	var at: int = team * ShipStats.ShipClass.size() + int(cls)
+	if team >= 0 and at < ships_launched.size():
+		ships_launched[at] += 1
+
+
+## Why the side may not order another `cls` (class limits), or "".
+func class_limit_reason(team: int, cls: ShipStats.ShipClass) -> String:
+	var stats: ShipStats = GameData.ship(cls)
+	var count: Vector2i = class_count(team, cls)
+	if stats.max_per_game > 0 and launched_count(team, cls) + count.y >= stats.max_per_game:
+		return "No %ss left: at most %d per game" % [stats.display_name, stats.max_per_game]
+	if stats.max_active > 0 and count.x >= stats.max_active:
+		return "At most %d %ss at a time" % [stats.max_active, stats.display_name]
+	return ""
 
 
 func yards_of(team: int) -> Array[Shipyard]:

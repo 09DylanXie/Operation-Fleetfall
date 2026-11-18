@@ -20,6 +20,7 @@ const SBB: ShipStats.ShipClass = ShipStats.ShipClass.SBB
 const RS: ShipStats.ShipClass = ShipStats.ShipClass.RS
 const RD: ShipStats.ShipClass = ShipStats.ShipClass.RD
 const LCV: ShipStats.ShipClass = ShipStats.ShipClass.LCV
+const CLAA: ShipStats.ShipClass = ShipStats.ShipClass.CLAA
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -146,12 +147,13 @@ func test_01_roster_matches_design_doc() -> void:
 		CL: ["CL", 250, 150, 15.0, 0.7, 0.05, 4.0, 2],
 		CA: ["CA", 400, 250, 22.5, 0.6375, 0.15, 5.333, 2],
 		BB: ["BB", 800, 600, 45.0, 0.4275, 0.25, 8.0, 3],
-		CV: ["HCV", 1500, 600, 60.0, 0.9, 0.0, 10.0, 3],
+		CV: ["SCV", 1500, 600, 60.0, 0.9, 0.0, 10.0, 3],
 		BC: ["BC", 650, 450, 37.5, 0.513, 0.2, 8.0, 3],
 		SBB: ["SBB", 1040, 780, 58.5, 0.38475, 0.3, 11.0, 3],
 		RS: ["RS", 250, 150, 15.0, 0.5, 0.0, 4.0, 1],
 		RD: ["RD", 150, 75, 10.0, 0.8, 0.0, 4.0, 1],
 		LCV: ["LCV", 500, 200, 30.0, 0.9, 0.0, 10.0, 2],
+		CLAA: ["CLAA", 400, 250, 15.0, 0.7, 0.05, 4.0, 2],
 	}
 	check(GameData.all_classes().size() == expected.size(), "every class is in the roster")
 	for cls: ShipStats.ShipClass in GameData.all_classes():
@@ -193,22 +195,22 @@ func test_01_roster_matches_design_doc() -> void:
 	check(dd.torpedo_mode == ShipStats.TorpedoMode.AUTO_BROADSIDE, "DD auto broadside torpedoes")
 	check_near(dd.torpedo_interval, 30.0, "DD torpedo cooldown")
 	check(not cv.has_guns() and cv.torpedo_mode == ShipStats.TorpedoMode.NONE and cv.has_planes(), "CV planes only")
-	check_near(cv.plane_interval, 3.333, "Heavy Carrier sends a dive-bomber squadron every 3.3s (5s cut by a third)", 0.01)
-	check_near(cv.bomb_damage_multiplier, 1.1, "Heavy Carrier bombs hit 10% harder")
-	check(cv.torpedo_flights_per_launch == 3 and cv.torpedo_flights_per_target == 3, "Heavy Carrier sends 3 torpedo flights, up to 3 per target")
+	check_near(cv.plane_interval, 3.333, "Supercarrier sends a dive-bomber squadron every 3.3s (5s cut by a third)", 0.01)
+	check_near(cv.bomb_damage_multiplier, 1.1, "Supercarrier bombs hit 10% harder")
+	check(cv.torpedo_flights_per_launch == 3 and cv.torpedo_flights_per_target == 3, "Supercarrier sends 3 torpedo flights, up to 3 per target")
 	check(cv.squadrons_per_target == 5 and cv.max_total_squadrons == 0 and cv.squadrons_per_launch == 1,
-		"Heavy Carrier stacks up to 5 dive-bomber squadrons on each target, with no overall cap")
+		"Supercarrier stacks up to 5 dive-bomber squadrons on each target, with no overall cap")
 	var lcv: ShipStats = GameData.ship(LCV)
 	check_near(lcv.plane_interval, 5.0, "Light Carrier keeps 5s dive bombers")
 	check(lcv.torpedo_flights_per_launch == 1 and lcv.max_torpedo_bombers == 1, "Light Carrier: one torpedo flight at a time")
 	check_near(lcv.bomb_damage_multiplier, 1.0, "Light Carrier bombs are standard")
 	check(lcv.max_total_squadrons == 5 and lcv.max_squadrons == 5, "Light Carrier has at most 5 squadrons up")
-	check_near(lcv.plane_range, cv.plane_range * 0.5, "Light Carrier plane range is half the Heavy Carrier's")
+	check_near(lcv.plane_range, cv.plane_range * 0.5, "Light Carrier plane range is half the Supercarrier's")
 	check(lcv.has_torpedo_bombers() and lcv.has_depth_bombers(), "Light Carrier flies all three roles")
 	check(not ShipStats.is_capital_class(LCV), "torpedo bombers do not go after a Light Carrier")
 	check(cv.has_torpedo_bombers() and absf(cv.torpedo_bomber_interval - 6.667) < 0.01, "CV torpedo bombers every 6.7s")
 	check(cv.has_depth_bombers() and is_equal_approx(cv.depth_bomber_interval, 2.0), "CV depth-charge bombers every 2s")
-	check_near(cv.plane_range, 1300.0 * 1.3 * 1.2, "Heavy Carrier plane range: +30%, then +20%")
+	check_near(cv.plane_range, 1300.0 * 1.3 * 1.2, "Supercarrier plane range: +30%, then +20%")
 	check(ss.torpedoes_per_launch == 3, "SS launches 3 torpedoes")
 	for cls: ShipStats.ShipClass in [BC, BB, SBB, CV]:
 		check(ShipStats.is_capital_class(cls), "%s may be attacked by torpedo bombers" % GameData.ship(cls).code)
@@ -223,6 +225,23 @@ func test_01_roster_matches_design_doc() -> void:
 	check_near(rd.spotting_range, dd.spotting_range * 1.5, "a Radar Ship spots 1.5x as far as a DD")
 	check_near(rd.max_hp, dd.max_hp * 0.5, "a Radar Ship has half a DD's HP")
 	check(not rd.detects_submarines, "Radar Ships spot surface ships only")
+	check(GameData.ship(CV).display_name == "Supercarrier", "the heavy carrier is the Supercarrier (SCV)")
+	# AA Cruiser: a Light Cruiser with its guns traded for flak, at a Heavy Cruiser's price.
+	var claa: ShipStats = GameData.ship(CLAA)
+	check(not claa.has_guns() and not claa.has_planes() and not claa.is_support(), "AA Cruiser: no guns, but a warship")
+	check(claa.max_hp == cl.max_hp and claa.speed_factor == cl.speed_factor and claa.base_armor == cl.base_armor \
+		and claa.spotting_range == cl.spotting_range and claa.hull_length == cl.hull_length, "AA Cruiser has a CL's stats")
+	check(claa.gold_cost == ca.gold_cost and claa.steel_cost == ca.steel_cost, "an AA Cruiser costs as much as a CA")
+	check_near(claa.periodic_aa_chance, 1.0 / 3.0, "AA Cruiser flak downs a squadron 1 time in 3", 0.001)
+	check_near(claa.periodic_aa_interval, 3.0, "AA Cruiser flak every 3s")
+	check_near(claa.periodic_aa_range, cl.gun_range * 0.5, "AA Cruiser flak reaches half a CL's gun range")
+	check(not ShipStats.is_capital_class(CLAA), "torpedo bombers ignore AA Cruisers")
+	# Shop and hotkey order: smallest hulls first, radar / resource ships / destroyers at the
+	# small end, carriers at the big end.
+	var order: Array[ShipStats.ShipClass] = GameData.all_classes()
+	check(order.slice(0, 3) == [RD, RS, DD], "the shop starts with RD, RS, DD (%s)" % [order])
+	check(order.slice(order.size() - 2) == [LCV, CV], "the shop ends with the carriers")
+	check(order.size() == PlayerController.BUILD_KEYS.size(), "every class has a build hotkey")
 	check_near(dd.torpedo_speed_scale, 0.5, "DD torpedoes run at half the standard torpedo speed")
 	check_near(ss.torpedo_speed_scale, 1.0, "SS torpedoes run at the standard torpedo speed")
 	for cls: ShipStats.ShipClass in [CL, CA, BB, BC, SBB]:
@@ -311,7 +330,7 @@ func test_02_every_scene_script_and_resource_loads() -> void:
 		check(script != null and script.can_instantiate(), "script compiles: " + path)
 	var resources: Array[String] = []
 	_collect("res://data", ".tres", resources)
-	check(resources.size() == 15, "found all data resources (%d)" % resources.size())
+	check(resources.size() == 16, "found all data resources (%d)" % resources.size())
 	for path: String in resources:
 		check(load(path) != null, "resource loads: " + path)
 	check(load("res://assets/shaders/fog.gdshader") != null, "fog shader loads")
@@ -1586,6 +1605,12 @@ func test_22_player_input_select_move_attack_build() -> void:
 		if ship.has_destination() and ship.destination().distance_to(Vector2(1650.0, 1300.0)) < 120.0:
 			moving += 1
 	check(moving == 3, "right-click on water issues a formation move (got %d)" % moving)
+	check(m.order_feedback != null and m.order_feedback.active_count() == 1, "a move order shows an impact ripple")
+	var water_screen: Vector2 = m.player.world_to_screen(Vector2(1650.0, 1300.0))
+	check(m.player.wanted_cursor(water_screen) == PlayerController.CursorMode.MOVE,
+		"with ships selected the cursor is the move arrow over water")
+	check(m.player.wanted_cursor(m.player.world_to_screen(enemy.position)) == PlayerController.CursorMode.ATTACK,
+		"and a crosshair over a spotted enemy")
 	# Right-click a spotted enemy: focus fire.
 	check(enemy.spotted_by[0], "enemy is spotted")
 	_click(m, MOUSE_BUTTON_RIGHT, enemy.position, true)
@@ -1594,6 +1619,9 @@ func test_22_player_input_select_move_attack_build() -> void:
 		if ship.priority_target == enemy:
 			focused += 1
 	check(focused == 3, "right-click on an enemy sets the priority target (got %d)" % focused)
+	check(m.order_feedback.active_count() == 2, "an attack order briefly brackets the enemy")
+	m.order_feedback._process(OrderFeedback.LOCK_TIME + 0.1)
+	check(m.order_feedback.active_count() == 0, "order markers fade out")
 	# Stop key.
 	_key(KEY_X)
 	check(squad[0].priority_target == null and not squad[0].has_destination(), "X stops the selection")
@@ -1655,8 +1683,8 @@ func test_22_player_input_select_move_attack_build() -> void:
 	await get_tree().process_frame
 	check(m.player.selected_yard == m.bases[0].shipyard, "H selects the Home Base")
 	var gold: int = m.economy.gold[0]
-	_key(KEY_1)
-	check(m.bases[0].shipyard.queue.size() == 1 and gold - m.economy.gold[0] == 100, "hotkey 1 queues and pays for a destroyer")
+	_key(KEY_3)
+	check(m.bases[0].shipyard.queue.size() == 1 and gold - m.economy.gold[0] == 100, "hotkey 3 queues and pays for a destroyer")
 	await frames(2)
 	check(m.bases[0].shipyard.hull != null, "its hull is laid down at once")
 	m.hud._on_build_pressed(SS)
@@ -1998,6 +2026,91 @@ func test_32_super_battleship_flak() -> void:
 		"barrages are at least %.0fs apart" % GameData.ship(SBB).periodic_aa_interval)
 
 
+func test_45_aa_cruiser_flak_shreds_squadrons() -> void:
+	var m: Match = await start(open_map(Vector2(3000.0, 2400.0)))
+	var stats: ShipStats = GameData.ship(CLAA)
+	var claa: Ship = m.spawn_ship(CLAA, 0, Vector2(1500.0, 1200.0))
+	claa.max_hp = 1000000.0
+	claa.hp = claa.max_hp
+	var cv: Ship = m.spawn_ship(CV, 1, Vector2(1500.0, 1900.0))
+	m.spawn_ship(DD, 1, Vector2(1500.0, 1600.0))
+	check(claa.range_rings().has(Vector2(stats.periodic_aa_range, 4.0)), "the AA Cruiser shows its flak ring")
+	await seconds(60.0)
+	check(claa.salvos_fired == 0, "no gun salvos from an AA Cruiser")
+	check(cv.squadrons_launched >= 3, "the carrier sends squadrons at the AA Cruiser (%d)" % cv.squadrons_launched)
+	check(claa.flak_barrages >= 5, "the AA Cruiser fires flak barrages (%d)" % claa.flak_barrages)
+	check(claa.flak_kills >= 2 and cv.squadrons_lost >= claa.flak_kills, "flak brings squadrons down (%d)" % claa.flak_kills)
+	check(float(claa.flak_barrages) <= 60.0 / stats.periodic_aa_interval + 1.0,
+		"barrages are at least %.0fs apart" % stats.periodic_aa_interval)
+
+
+func test_46_major_islands_raise_the_fleet_cap() -> void:
+	var map: MapData = open_map()
+	add_island(map, MapData.KIND_MAJOR, Vector2(1500.0, 700.0), 120.0)
+	add_island(map, MapData.KIND_MAJOR, Vector2(2500.0, 1700.0), 120.0)
+	add_island(map, MapData.KIND_MINOR, Vector2(2000.0, 1200.0), 80.0)
+	var m: Match = await start(map)
+	var b: GameBalance = GameData.balance()
+	check(b.major_island_fleet_bonus == 3, "+3 fleet cap per Major island")
+	check(m.fleet_cap(0) == 30, "base fleet cap 30")
+	m.islands[2].set_owner_team(0)
+	check(m.fleet_cap(0) == 30, "a Minor island adds nothing")
+	m.islands[0].set_owner_team(0)
+	check(m.fleet_cap(0) == 33 and m.islands[0].shipyard.tier == 0, "a Major island adds 3 with no shipyard built")
+	m.islands[1].set_owner_team(0)
+	check(m.fleet_cap(0) == 36 and m.fleet_cap(1) == 30, "two Majors add 6, for their owner only")
+	m.economy.set_bank(0, 999999, 999999)
+	for i: int in 33:
+		m.spawn_ship(DD, 0, Vector2(600.0 + 90.0 * float(i % 10), 1500.0 + 90.0 * float(i / 10)))
+	var yard: Shipyard = m.bases[0].shipyard
+	check(yard.enqueue_ship(DD), "ship 34 fits under the raised cap")
+	m.islands[1].set_owner_team(-1)
+	check(yard.try_enqueue_ship(DD).contains("Fleet cap reached (33"), "losing a Major lowers the cap again")
+
+
+func test_47_supercarrier_and_super_battleship_limits() -> void:
+	var map: MapData = open_map()
+	add_island(map, MapData.KIND_MAJOR, Vector2(1500.0, 700.0), 120.0)
+	var m: Match = await start(map)
+	m.islands[0].set_owner_team(0)
+	var yard: Shipyard = m.islands[0].shipyard
+	yard.tier = 3
+	m.economy.set_bank(0, 999999, 999999)
+	check(GameData.ship(CV).max_active == 2 and GameData.ship(CV).max_per_game == 4, "SCV: 2 at a time, 4 per game")
+	check(GameData.ship(SBB).max_active == 3 and GameData.ship(SBB).max_per_game == 0, "SBB: 3 at a time")
+	# Super Battleships: three at once, counting afloat and queued.
+	m.spawn_ship(SBB, 0, Vector2(800.0, 1500.0))
+	check(yard.enqueue_ship(SBB) and yard.enqueue_ship(SBB), "two more SBB queue up")
+	check(yard.try_enqueue_ship(SBB).contains("At most 3"), "a fourth SBB is refused")
+	check(m.class_count(0, SBB) == Vector2i(3, 2), "one afloat, two unfinished")
+	yard.cancel_last()
+	check(yard.enqueue_ship(SBB), "cancelling frees the slot")
+	while not yard.queue.is_empty():
+		yard.cancel_last()
+	# Supercarriers: two at once.
+	check(yard.enqueue_ship(CV) and yard.enqueue_ship(CV), "two SCV queue up")
+	check(yard.try_enqueue_ship(CV).contains("At most 2"), "a third SCV is refused")
+	yard.cancel_last()
+	# A real launch counts toward the per-game limit.
+	await seconds(GameData.ship(CV).build_time + 0.5)
+	check(m.launched_count(0, CV) == 1, "a launched SCV is counted (%d)" % m.launched_count(0, CV))
+	check(m.launched_count(1, CV) == 0, "per side")
+	# Lose it and two more, then only one is left for the game.
+	m.record_launch(0, CV)
+	m.record_launch(0, CV)
+	for ship: Ship in m.ships_of(0):
+		if ship.stats.ship_class == CV:
+			ship.kill()
+	await frames(2)
+	check(m.class_count(0, CV).x == 0 and m.launched_count(0, CV) == 3, "three launched, none left afloat")
+	check(yard.enqueue_ship(CV), "a fourth SCV may still be built")
+	check(yard.try_enqueue_ship(CV).contains("per game"), "but not a fifth while the fourth is on order")
+	yard.cancel_last()
+	m.record_launch(0, CV)
+	check(yard.try_enqueue_ship(CV).contains("per game"), "after four launches SCVs are gone for good")
+	check(m.class_limit_reason(1, CV) == "", "the other side still has all of its own")
+
+
 func test_33_swell_rocks_ships_without_carrying_them_off() -> void:
 	var m: Match = await start(open_map(Vector2(3000.0, 2400.0)))
 	var dd: Ship = m.spawn_ship(DD, 0, Vector2(1500.0, 1200.0))
@@ -2265,8 +2378,12 @@ func test_16c_resource_ship_mines_islands() -> void:
 	var miner: Ship = m.spawn_ship(RS, 0, Vector2(1500.0, 800.0 + 100.0 + 90.0))
 	var second: Ship = m.spawn_ship(RS, 0, Vector2(1500.0, 800.0 - 100.0 - 90.0))
 	var far: Ship = m.spawn_ship(RS, 0, Vector2(1000.0, 2000.0))
+	var rival: Ship = m.spawn_ship(RS, 1, Vector2(1500.0 - 100.0 - 90.0, 800.0))
 	await seconds(0.5)
-	check(miner.mining_island() == m.islands[0] and second.mining_island() == m.islands[0], "both ships are mining the cover island")
+	check(miner.mining_island() == m.islands[0], "the first Resource Ship mines the cover island")
+	check(second.mining_island() == null and second.blocked_mining_island() == m.islands[0],
+		"a second Resource Ship of the same side cannot link to the same island")
+	check(rival.mining_island() == m.islands[0], "another side's Resource Ship can mine the same island")
 	check(far.mining_island() == null, "a ship away from any island mines nothing")
 	check(m.economy.income_for(0) - base_income == Vector2i(b.minor_gold, b.minor_steel),
 		"one island pays a Minor island's income, however many ships mine it")
@@ -2280,11 +2397,28 @@ func test_16c_resource_ship_mines_islands() -> void:
 	check(second.mining_island() == m.islands[1], "it mines the next island once it stops there")
 	check(m.economy.income_for(0) - base_income == Vector2i(b.minor_gold, b.minor_steel) * 2, "two islands pay twice")
 	check(m.islands[1].owner_team == -1 and m.islands[1].capture_progress <= 0.0, "Resource Ships never capture islands")
+	# Once the island is the side's own, its Resource Ship stops mining it; others still may.
+	var enemy_miner: Ship = m.spawn_ship(RS, 1, Vector2(2200.0 + 80.0 + 100.0, 1600.0))
+	m.islands[1].set_owner_team(0)
+	await frames(2)
+	check(second.mining_island() == null, "a Resource Ship cannot mine an island its own side owns")
+	check(enemy_miner.mining_island() == m.islands[1], "an enemy Resource Ship can mine that island")
+	m.islands[1].set_owner_team(-1)
+	enemy_miner.kill()
+	await frames(2)
+	check(second.mining_island() == m.islands[1], "it mines the island again once it is neutral")
 	var bank: int = m.economy.gold[0]
 	var expected: int = m.economy.income_for(0).x
 	m.economy.pay_tick()
 	check(m.economy.gold[0] - bank == expected, "mined income is paid on the supply tick")
+	# The blocked ship takes the island over once the first miner is gone.
+	var third: Ship = m.spawn_ship(RS, 0, Vector2(1500.0, 800.0 - 100.0 - 90.0))
+	await seconds(0.5)
+	check(third.mining_island() == null, "a newcomer waits while the island is taken")
 	miner.kill()
+	await frames(2)
+	check(third.mining_island() == m.islands[0], "and links up once the first miner is sunk")
+	third.kill()
 	await frames(2)
 	check(m.economy.income_for(0) - base_income == Vector2i(b.minor_gold, b.minor_steel), "a sunk miner earns nothing (%s, %s, %s)" % [
 		m.economy.income_for(0) - base_income, second.mining_island(), second.velocity.length()])
@@ -2319,7 +2453,7 @@ func test_16e_cruiser_and_capital_ship_speeds() -> void:
 	await get_tree().process_frame
 
 
-# --- Heavy Carrier stacking, broadside turns ---------------------------------
+# --- Supercarrier stacking, broadside turns ---------------------------------
 
 func test_12f_heavy_carrier_stacks_five_per_target_and_retargets() -> void:
 	dive_bombers_only(true)
@@ -2341,7 +2475,7 @@ func _heavy_carrier_stacking() -> void:
 	while cv.squadrons_launched < 10 and waited < 60 * 60:
 		await frames(1)
 		waited += 1
-	check(cv.squadrons_launched == 10 and cv.airborne_squadrons() == 10, "a Heavy Carrier keeps more than 5 squadrons up (%d)" % cv.airborne_squadrons())
+	check(cv.squadrons_launched == 10 and cv.airborne_squadrons() == 10, "a Supercarrier keeps more than 5 squadrons up (%d)" % cv.airborne_squadrons())
 	check(cv.squadrons_on(near) == 5, "the first five stack on the nearest ship (%d)" % cv.squadrons_on(near))
 	check(cv.squadrons_on(mid) + cv.squadrons_on(spare) == 5, "the next five go to another ship")
 	var second: Ship = mid if cv.squadrons_on(mid) == 5 else spare
@@ -2435,7 +2569,7 @@ func test_12i_heavy_carrier_bombs_hit_ten_percent_harder() -> void:
 	var light: Ship = m.spawn_ship(LCV, 0, Vector2(1000.0, 1300.0))
 	var a: PlaneSquadron = m.spawn_squadron(heavy, heavy.position, 0.0)
 	var b: PlaneSquadron = m.spawn_squadron(light, light.position, 0.0)
-	check_near(a.damage, GameData.bomb_damage() * 1.1, "Heavy Carrier bomb: %.0f" % a.damage, 0.01)
+	check_near(a.damage, GameData.bomb_damage() * 1.1, "Supercarrier bomb: %.0f" % a.damage, 0.01)
 	check_near(b.damage, GameData.bomb_damage(), "Light Carrier bomb: standard", 0.01)
 	var torp: PlaneSquadron = m.spawn_squadron(heavy, heavy.position, 0.0, PlaneSquadron.Role.TORPEDO)
 	check_near(torp.damage, GameData.bomb_damage(), "only dive bombs get the bonus", 0.01)

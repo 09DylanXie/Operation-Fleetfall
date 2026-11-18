@@ -8,7 +8,7 @@
 
 - **Objective:** Destroy the enemy's Home Base.
 - **Core Loop:** Expand from your Home Base, capture strategic island resource nodes, construct tech-specific shipyards, and out-maneuver the opposing fleet using island cover, fog of war, dynamic weather, and coordinated focus fire.
-- **Fleet Cap:** **30 ships maximum** per player to prevent unit spam and make every loss tactically meaningful. Ships under construction cannot defend themselves.
+- **Fleet Cap:** **30 ships** per player, **+3 for every Major island you own** (shipyard or not), to prevent unit spam and make every loss tactically meaningful. Ships under construction cannot defend themselves. You may have at most **2 Supercarriers** and **3 Super Battleships** at a time, and launch at most **4 Supercarriers** in a whole game.
 
 ---
 
@@ -62,13 +62,14 @@ All baseline stats scale relative to the **Destroyer (DD)**.
 | **Battlecruiser (BC)** | 650 G / 450 S | 37.5s | 51% | 20% | 4x Quad Guns | 8.0s | Medium / Extreme |
 | **Battleship (BB)** | 800 G / 600 S | 45s | 43% | 25% | 3x Double Guns + Secondaries | 8.0s | Massive / Extreme |
 | **Super Battleship (SBB)** | 1040 G / 780 S | 58.5s | 38% | 30% | 3x Triple Guns + Secondaries + Flak | 11.0s | Massive+ / Extreme |
-| **Heavy Carrier (HCV)** | 1500 G / 600 S | 60s | 90% | 0% | Dive, Torpedo & Depth-Charge Bombers | 3.3s / 6.7s / 2s | High (HE Bombs, +10%) |
+| **Supercarrier (SCV)** | 1500 G / 600 S | 60s | 90% | 0% | Dive, Torpedo & Depth-Charge Bombers | 3.3s / 6.7s / 2s | High (HE Bombs, +10%) |
 | **Light Carrier (LCV)** | 500 G / 200 S | 30s | 90% | 0% | Dive, Torpedo & Depth-Charge Bombers | 5s / 10s / 3s | High (HE Bombs) |
+| **AA Cruiser (CLAA)** | 400 G / 250 S | 15s | 70% | 5% | Flak only (1 in 3 per squadron within 310, every 3s) | 3s | - |
 | **Resource Ship (RS)** | 250 G / 150 S | 15s | 50% | 0% | None | - | - |
 | **Radar Ship (RD)** | 150 G / 75 S | 10s | 80% | 0% | None | - | - |
 
-- **Heavy Carrier:** plane range 2028. It launches a third faster than the Light Carrier, its bombs hit 10% harder (165), and it can stack up to 5 dive-bomber squadrons on every target, so it can bomb several ships at once. Each torpedo launch sends **3 flights**, spread over up to 3 capital ships or all at one (never more than 3 on the same ship). **Light Carrier:** a cheaper Tier 2 carrier with half the plane range (1014) and at most 5 squadrons in the air in total.
-- **Resource Ship:** an unarmed collier with almost no HP (60). Stop it next to any island that is not a Home Base and it mines it, earning a small island's income (+30 Gold / +10 Steel per tick) for as long as it stays. Several Resource Ships on one island earn only once, so spread them out.
+- **Supercarrier:** plane range 2028. It launches a third faster than the Light Carrier, its bombs hit 10% harder (165), and it can stack up to 5 dive-bomber squadrons on every target, so it can bomb several ships at once. Each torpedo launch sends **3 flights**, spread over up to 3 capital ships or all at one (never more than 3 on the same ship). **Light Carrier:** a cheaper Tier 2 carrier with half the plane range (1014) and at most 5 squadrons in the air in total.
+- **Resource Ship:** an unarmed collier with almost no HP (60). Stop it next to any island that is not a Home Base or one of your own Minor/Major islands and it mines it, earning a small island's income (+30 Gold / +10 Steel per tick) for as long as it stays. Several Resource Ships on one island earn only once, so spread them out.
 - **Radar Ship:** an unarmed picket with half a Destroyer's HP that spots surface ships 1.5x as far as a Destroyer (1080). It cannot see submerged Submarines.
 - **Radar sees over islands:** a Radar Ship spots surface ships behind islands too (submarines still hide from it).
 
@@ -95,13 +96,13 @@ All baseline stats scale relative to the **Destroyer (DD)**.
 - **Base Attack Restriction:** Submarines **cannot** target, attack, or damage the enemy Home Base. Base sieges require surface artillery or Carrier air strikes.
 
 ### Carrier Planes
-- **Automatic Air Wing:** A Carrier launches on its own at the nearest spotted enemy within plane range (**2028** Heavy, **1014** Light). Up to **5** dive-bomber squadrons stack on one target; when a target sinks, its squadrons go straight to another target in range. Select the Carrier and **right-click an enemy** to pick the target yourself; **X** hands the air wing back to automatic targeting.
+- **Automatic Air Wing:** A Carrier launches on its own at the nearest spotted enemy within plane range (**2028** Supercarrier, **1014** Light). Up to **5** dive-bomber squadrons stack on one target; when a target sinks, its squadrons go straight to another target in range. Select the Carrier and **right-click an enemy** to pick the target yourself; **X** hands the air wing back to automatic targeting.
 - **Torpedo Bombers:** every **10 seconds** a flight goes after a spotted Battlecruiser, Battleship, Super Battleship or Carrier (never anything smaller), drops **2 parallel torpedoes** from just off its broadside, aimed straight across it, and flies home.
 - **Depth-Charge Bombers:** every **3 seconds** a flight goes after a spotted enemy Submarine, drops a depth charge (100 damage, ignores armor) and flies home.
 - **Hovering Dive Bombers:** A squadron launches every **5 seconds** (up to **5** in the air) and can attack anything. It flies at **50% of standard torpedo speed**, circles its target and bombs it every **3 seconds** (**150** damage per bomb run) until the target sinks or is lost, then moves on or flies home and lands.
 - **Over Islands:** Planes fly over islands and land, so a strike needs a spotted target within plane range but **no line of sight**. A Carrier spots very little itself, so it relies on the rest of the fleet for targets.
 - **Armor Bypass:** High Explosive (HE) bombs **ignore armor damage reduction**, making Carriers a reliable counter to entrenched Battleships.
-- **Anti-Air:** Each time a squadron bombs a Light Cruiser, Heavy Cruiser or Battleship, that ship has a **1 in 5 chance** of shooting the squadron down.
+- **Anti-Air:** Each time a squadron bombs a Light Cruiser, Heavy Cruiser or Battleship, that ship has a **1 in 5 chance** of shooting the squadron down. The **AA Cruiser** (a Light Cruiser with all its guns swapped for flak) goes further: every 3 seconds each enemy squadron within 310 has a **1 in 3 chance** of being shot down.
 
 **Broadsides:** when you right-click an enemy, your gun ships turn to put their broadside toward it once they are in range, so every turret can fire. Ships the computer controls do not do this.
 
@@ -140,7 +141,7 @@ Up to four players on one local network, each with a fleet of their own. One pla
 | **Left drag** | Box-select ships |
 | **Left click** | Select a ship, your Home Base or a captured island (Shift adds to the selection) |
 | **Right click** | Move · focus-fire a spotted enemy · Submarines: fire torpedoes at it · Carriers: point the air wing at it · one of your docks: sail there for repairs · with a shipyard selected: set its rally point |
-| **1 – 9, 0, -** | Build DD / SS / CL / CA / BC / BB / SBB / Heavy Carrier / Resource Ship / Radar Ship / Light Carrier at the selected shipyard |
+| **1 – 9, 0, -, =** | Build RD / RS / DD / SS / CL / CLAA / CA / BC / BB / SBB / LCV / SCV at the selected shipyard (the shop row, smallest to largest) |
 | **U** / **C** | Build or upgrade the selected shipyard / cancel the last queued order (full refund) |
 | **X** / **Esc** | Stop the selected ships (a Carrier's air wing goes back to picking its own targets) / clear the selection |
 | **P** | Pause / resume (single player only; also the **Pause** button in the top bar) |
@@ -149,7 +150,7 @@ Up to four players on one local network, each with a fleet of their own. One pla
 | **H** / **Ctrl+A** | Jump to the Home Base / select every ship |
 | **WASD, arrows, middle-drag** | Pan the camera (mouse wheel zooms, click the minimap to jump) |
 
-Neutral islands are captured by holding a ship next to them for 30 seconds with no enemy present (Minor islands sit in shallow water, so only Destroyers and Submarines can reach them). **An island someone owns is fortified** like a small base: it has a garrison with **2000 HP** (Minor) or **4000 HP** (Major) shown as a bar over the island. Shell it, torpedo it or bomb it down to zero (Submarines cannot hurt it) and the island turns neutral, destroying its shipyard; then capture it as usual. The garrison does not shoot back; on an island with a Tier 2 or 3 shipyard it rebuilds (5% of its HP per second) once it has gone 5 seconds without being hit, but a fresh owner gets it back at full strength. A captured island can then be given a shipyard: Tier 1 builds DD/SS/RS/RD, Tier 2 builds CL/CA/LCV, Tier 3 (Major islands only) builds BC/BB/SBB/HCV. Build orders are paid in full when you queue them (you cannot queue what you cannot afford) and refunded in full if you cancel them, even the ship already on the slip. A yard lays down the next order the moment the previous ship launches.
+Neutral islands are captured by holding a ship next to them for 30 seconds with no enemy present (Minor islands sit in shallow water, so only Destroyers and Submarines can reach them). **An island someone owns is fortified** like a small base: it has a garrison with **2000 HP** (Minor) or **4000 HP** (Major) shown as a bar over the island. Shell it, torpedo it or bomb it down to zero (Submarines cannot hurt it) and the island turns neutral, destroying its shipyard; then capture it as usual. The garrison does not shoot back; on an island with a Tier 2 or 3 shipyard it rebuilds (5% of its HP per second) once it has gone 5 seconds without being hit, but a fresh owner gets it back at full strength. A captured island can then be given a shipyard: Tier 1 builds DD/SS/RS/RD, Tier 2 builds CL/CLAA/CA/LCV, Tier 3 (Major islands only) builds BC/BB/SBB/SCV. Each tier's dock looks different, from a timber jetty to a full naval base. Only one of your Resource Ships can mine any one island (another side's can share it). Build orders are paid in full when you queue them (you cannot queue what you cannot afford) and refunded in full if you cancel them, even the ship already on the slip. A yard lays down the next order the moment the previous ship launches.
 
 **Island defenses:** a Major island with a Tier 3 shipyard becomes an **air base**: it sends up to 3 squadrons of HE dive bombers (one every 10 seconds) after enemy ships that shell it from within about a cruiser's range. Its owner can also buy **radar** for it (200 Gold / 150 Steel, from the island's panel), which lets the island spot as far as a Destroyer. Both are lost if the island falls.
 

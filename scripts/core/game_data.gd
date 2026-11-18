@@ -24,6 +24,7 @@ const SHIP_PATHS: Array[String] = [
 	"res://data/ships/rs.tres",
 	"res://data/ships/rd.tres",
 	"res://data/ships/lcv.tres",
+	"res://data/ships/claa.tres",
 ]
 
 static var _balance: GameBalance = null
@@ -58,19 +59,21 @@ static func ship(ship_class: ShipStats.ShipClass) -> ShipStats:
 	return _ships[key]
 
 
+## Shop and hotkey order (1-9, 0, -, =): smallest hulls first, carriers last.
 static func all_classes() -> Array[ShipStats.ShipClass]:
 	return [
+		ShipStats.ShipClass.RD,
+		ShipStats.ShipClass.RS,
 		ShipStats.ShipClass.DD,
 		ShipStats.ShipClass.SS,
 		ShipStats.ShipClass.CL,
+		ShipStats.ShipClass.CLAA,
 		ShipStats.ShipClass.CA,
 		ShipStats.ShipClass.BC,
 		ShipStats.ShipClass.BB,
 		ShipStats.ShipClass.SBB,
-		ShipStats.ShipClass.CV,
-		ShipStats.ShipClass.RS,
-		ShipStats.ShipClass.RD,
 		ShipStats.ShipClass.LCV,
+		ShipStats.ShipClass.CV,
 	]
 
 

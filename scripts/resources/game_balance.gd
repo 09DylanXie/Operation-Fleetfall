@@ -6,6 +6,9 @@ extends Resource
 @export_group("Fleet")
 ## GDD: 30 ships per player, including hulls under construction and queued orders.
 @export var fleet_cap: int = 30
+## Extra fleet cap for every Major (deep-water, Tier 3 capable) island a side owns, whatever
+## its shipyard tier.
+@export var major_island_fleet_bonus: int = 3
 ## Destroyer speed in px/s; every class scales from this.
 @export var base_speed: float = 100.0
 ## Fraction of max HP a hull has when it is first laid down.

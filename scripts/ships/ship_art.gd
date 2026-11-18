@@ -10,10 +10,12 @@ extends RefCounted
 ##   BB  Scharnhorst-style battleship (Bismarck lines with one turret fewer)
 ##   BC  Italian battlecruiser (four quadruple turrets, red-white bow stripes)
 ##   SBB Yamato-type super battleship (teak deck, pagoda tower)
-##   CV  Heavy Carrier: Shinano-type (wooden flight deck and deck markings)
+##   CV  Supercarrier (SCV): Shinano-type (wooden flight deck and deck markings)
 ##   LCV Light Carrier: Independence-type (narrow deck on a cruiser hull, four funnels)
 ##   RS  Resource Ship: a small coastal collier with cargo hatches and derricks
 ##   RD  Radar Ship: a destroyer-sized radar picket with a big air-search array
+##   CLAA AA Cruiser: Atlanta-type (a light cruiser hull bristling with twin dual-purpose
+##        mounts, quad pom-poms along the sides and two flak directors)
 ## Small ships wear dark greys; only the big, expensive hulls get lighter paint and decks.
 
 const SMOKE: Color = Color(0.16, 0.16, 0.17)
@@ -92,6 +94,8 @@ static func draw_body(ci: CanvasItem, stats: ShipStats, team_color: Color, modul
 			_radar_ship(ci, stats, team_color)
 		ShipStats.ShipClass.LCV:
 			_light_carrier(ci, stats, team_color)
+		ShipStats.ShipClass.CLAA:
+			_aa_cruiser(ci, stats, team_color)
 	ci.draw_set_transform_matrix(origin)
 	_mod = Color.WHITE
 	_base = Transform2D.IDENTITY
@@ -772,3 +776,40 @@ static func _radar_ship(ci: CanvasItem, stats: ShipStats, team_color: Color) -> 
 	_oval(ci, Vector2(-9.0, 0.0), 1.6, 1.6, Color(0.45, 0.47, 0.49))
 	_dot(ci, Vector2(-9.0, 0.0), 0.5, Color(0.15, 0.15, 0.16))
 	_ensign(ci, -hl * 0.8, team_color, 1.4)
+
+
+## AA Cruiser: an Atlanta-type light cruiser with no main battery. Six twin dual-purpose
+## mounts on the centreline (three stepped forward, three aft), two more on the wings,
+## quad pom-poms down both sides and a pair of flak directors. All baked into the hull: the
+## flak has no turrets to train.
+static func _aa_cruiser(ci: CanvasItem, stats: ShipStats, team_color: Color) -> void:
+	var hl: float = stats.hull_length * 0.5
+	var hw: float = stats.hull_width * 0.5
+	var hull: PackedVector2Array = _hull(hl, hw, 0.4, -0.7, 0.5, 0.85)
+	_base_hull(ci, hull, MID_HULL, team_color)
+	_poly(ci, _scaled(hull, 0.93, 0.8), MID_DECK)
+	ci.draw_line(Vector2(-6.0, -hw * 0.8), Vector2(-6.0, hw * 0.8), _c(Color(0.18, 0.19, 0.2)), 0.6)
+	# Tall bridge with a flak director on top, and a second director aft.
+	_rect(ci, 4.0, 10.0, hw * 0.62, SUPER_DARK)
+	_rect(ci, 8.0, 10.0, hw * 0.78, Color(0.55, 0.57, 0.59))
+	_oval(ci, Vector2(6.0, 0.0), 1.8, 1.8, Color(0.7, 0.72, 0.74))
+	_dot(ci, Vector2(6.0, 0.0), 0.7, Color(0.2, 0.2, 0.21))
+	_rect(ci, -12.0, -15.5, hw * 0.5, SUPER_DARK)
+	_oval(ci, Vector2(-13.8, 0.0), 1.6, 1.6, Color(0.7, 0.72, 0.74))
+	_dot(ci, Vector2(-13.8, 0.0), 0.6, Color(0.2, 0.2, 0.21))
+	# Two slim funnels amidships.
+	_rect(ci, 1.5, -10.0, hw * 0.42, SUPER_DARK)
+	_funnel(ci, Vector2(-0.5, 0.0), 1.9, 1.5)
+	_funnel(ci, Vector2(-7.5, 0.0), 1.9, 1.5)
+	# Twin dual-purpose mounts: pale houses, short high-angle barrels.
+	var house: Color = Color(0.68, 0.7, 0.72)
+	for x: float in [26.0, 20.5, 15.0]:
+		_turret(ci, Vector2(x, 0.0), 0.0, 2.3, 2, 3.6, house)
+	for x: float in [-19.5, -24.5, -29.0]:
+		_turret(ci, Vector2(x, 0.0), PI, 2.3, 2, 3.6, house)
+	for y: float in [-hw * 0.6, hw * 0.6]:
+		_turret(ci, Vector2(-10.5, y), signf(y) * PI * 0.5, 1.9, 2, 3.0, house)
+	# Quad pom-poms in tubs down both sides, and the team ensign aft.
+	_aa_row(ci, -4.0, 12.0, hw * 0.66, 3, 1.1, Color(0.24, 0.25, 0.27))
+	_aa_row(ci, -4.0, 12.0, hw * 0.66, 3, 0.6, GUN_LIGHT)
+	_ensign(ci, -hl * 0.95, team_color, 1.5)

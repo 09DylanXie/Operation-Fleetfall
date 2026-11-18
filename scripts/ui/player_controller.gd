@@ -7,13 +7,22 @@ extends Node
 ##   Right click on one of your own docks (or its island / base) sends the selection there
 ##   for repairs. Right click with a shipyard selected sets its rally point.
 ##   R toggles range rings between "selected ships" and "all my ships".
-##   X stop   Ctrl+A select all   H home base   1-6 build   U upgrade   C cancel last   Esc deselect
+##   X stop   Ctrl+A select all   H home base   1-9, 0, -, = build (shop order)
+##   U upgrade   C cancel last   Esc deselect
+## With ships selected the cursor is a downward arrow (move), or a crosshair over an enemy;
+## orders show a ripple where they land (OrderFeedback) or a red bracket on the target.
 
 signal selection_changed
 
 const CLICK_THRESHOLD: float = 6.0
 const PICK_RADIUS: float = 26.0
 const DOCK_PICK_RADIUS: float = 45.0
+## Build hotkeys, one per class in GameData.all_classes() order, and their card labels.
+const BUILD_KEYS: Array[Key] = [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0,
+	KEY_MINUS, KEY_EQUAL]
+const BUILD_KEY_LABELS: PackedStringArray = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="]
+
+enum CursorMode { DEFAULT, MOVE, ATTACK }
 
 var team: int = 0
 var match_ref: Match = null
@@ -23,6 +32,8 @@ var selected_yard: Shipyard = null
 var dragging: bool = false
 var drag_start: Vector2 = Vector2.ZERO
 var drag_current: Vector2 = Vector2.ZERO
+var cursor_mode: CursorMode = CursorMode.DEFAULT
+var _cursors: Dictionary[int, Array] = {}
 
 
 func setup(p_match: Match, p_team: int) -> void:
@@ -87,14 +98,10 @@ func _handle_key(key: InputEventKey) -> void:
 				request_upgrade()
 		KEY_C:
 			request_cancel()
-		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0, KEY_MINUS:
-			if selected_yard != null:
+		_:
+			var index: int = BUILD_KEYS.find(key.keycode)
+			if index >= 0 and selected_yard != null:
 				var classes: Array[ShipStats.ShipClass] = GameData.all_classes()
-				var index: int = int(key.keycode) - int(KEY_1)
-				if key.keycode == KEY_0:
-					index = 9
-				elif key.keycode == KEY_MINUS:
-					index = 10
 				if index < classes.size():
 					request_build(classes[index])
 
@@ -117,6 +124,45 @@ func _prune_selection() -> void:
 
 func _process(_delta: float) -> void:
 	_prune_selection()
+	_update_cursor()
+
+
+# --- Cursor -------------------------------------------------------------------
+
+## The cursor the player should see now: a crosshair over a spotted enemy and a downward
+## arrow over open water while ships are selected; the normal pointer otherwise (and over
+## the HUD).
+func wanted_cursor(screen_pos: Vector2) -> CursorMode:
+	if not input_enabled or match_ref == null or match_ref.is_over or selected_ships.is_empty():
+		return CursorMode.DEFAULT
+	if match_ref.local_team >= 0 and match_ref.eliminated[team]:
+		return CursorMode.DEFAULT
+	var viewport: Viewport = get_viewport()
+	if viewport != null and viewport.gui_get_hovered_control() != null:
+		return CursorMode.DEFAULT
+	return CursorMode.ATTACK if enemy_at(screen_to_world(screen_pos)) != null else CursorMode.MOVE
+
+
+func _update_cursor() -> void:
+	if DisplayServer.get_name() == "headless" or get_viewport() == null:
+		return
+	var mode: CursorMode = wanted_cursor(get_viewport().get_mouse_position())
+	if mode == cursor_mode:
+		return
+	cursor_mode = mode
+	if mode == CursorMode.DEFAULT:
+		Input.set_custom_mouse_cursor(null)
+		return
+	if not _cursors.has(int(mode)):
+		_cursors[int(mode)] = OrderFeedback.make_attack_cursor() if mode == CursorMode.ATTACK 			else OrderFeedback.make_move_cursor()
+	var cursor: Array = _cursors[int(mode)]
+	Input.set_custom_mouse_cursor(cursor[0], Input.CURSOR_ARROW, cursor[1])
+
+
+func _exit_tree() -> void:
+	if cursor_mode != CursorMode.DEFAULT:
+		Input.set_custom_mouse_cursor(null)
+		cursor_mode = CursorMode.DEFAULT
 
 
 func clear_selection() -> void:
@@ -245,18 +291,28 @@ func issue_order_at(world_pos: Vector2) -> void:
 	_prune_selection()
 	if selected_ships.is_empty():
 		if selected_yard != null:
-			_send({"type": "rally", "yard": match_ref.yards.find(selected_yard), "x": world_pos.x, "y": world_pos.y})
+			if _send({"type": "rally", "yard": match_ref.yards.find(selected_yard), "x": world_pos.x, "y": world_pos.y}) == "":
+				_feedback_ping(world_pos, OrderFeedback.RALLY_COLOR)
 		return
 	var ids: Array[int] = match_ref.ship_ids(selected_ships)
 	var target: Combatant = enemy_at(world_pos)
 	if target != null:
 		_send({"type": "attack", "ships": ids, "target": match_ref.combatant_ref(target)})
+		if match_ref.order_feedback != null:
+			match_ref.order_feedback.lock_on(target)
 		return
 	var dock: Shipyard = own_dock_at(world_pos)
 	if dock != null:
 		order_dock(dock)
+		_feedback_ping(dock.dock_point(), OrderFeedback.MOVE_COLOR)
 		return
-	_send({"type": "move", "ships": ids, "x": world_pos.x, "y": world_pos.y})
+	if _send({"type": "move", "ships": ids, "x": world_pos.x, "y": world_pos.y}) == "":
+		_feedback_ping(world_pos, OrderFeedback.MOVE_COLOR)
+
+
+func _feedback_ping(at: Vector2, color: Color) -> void:
+	if match_ref.order_feedback != null:
+		match_ref.order_feedback.ping(at, color)
 
 
 ## True if the order was accepted (on a LAN client: sent - the host answers with a notice

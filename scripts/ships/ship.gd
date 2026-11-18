@@ -28,8 +28,9 @@ const RING_GUN_COLOR: Color = Color(1.0, 0.85, 0.4, 0.5)
 const RING_TORPEDO_COLOR: Color = Color(0.4, 0.92, 1.0, 0.5)
 const RING_PLANE_COLOR: Color = Color(0.82, 0.7, 1.0, 0.5)
 const RING_SECONDARY_COLOR: Color = Color(1.0, 0.6, 0.3, 0.45)
+const RING_AA_COLOR: Color = Color(1.0, 0.45, 0.6, 0.45)
 ## Floats per ship in a network snapshot (see net_write).
-const NET_FIELDS: int = 22
+const NET_FIELDS: int = 24
 ## A replica keeps sailing a ship along its last known course for this long without news.
 const NET_EXTRAPOLATE_TIME: float = 0.25
 const NET_SNAP_DISTANCE: float = 250.0
@@ -96,9 +97,13 @@ var _net_squadrons: int = 0
 var _net_strike_ref: int = 0
 var _net_auto_ref: int = 0
 var _aa_cd: float = 0.0
-## Flak barrages fired and squadrons they brought down (Super Battleship).
+## Flak barrages fired and squadrons they brought down (Super Battleship, AA Cruiser).
 var flak_barrages: int = 0
 var flak_kills: int = 0
+## Resource Ships: the island this ship has claimed to mine (one per island per side).
+var _mining_claim: Island = null
+## Replica: index in Match.islands of the island the host says this ship is mining (-1 none).
+var _net_mining: int = -1
 ## Cosmetic: each mount's current training angle relative to the bow (radians).
 var turret_angles: PackedFloat32Array = PackedFloat32Array()
 var secondary_angles: PackedFloat32Array = PackedFloat32Array()
@@ -207,6 +212,11 @@ func depth_bomber_cooldown() -> float:
 	return _depth_bomber_cd
 
 
+## Seconds until the flak barrage (SBB, AA Cruiser) can fire again.
+func flak_cooldown() -> float:
+	return _aa_cd
+
+
 func depth_charge_cooldown() -> float:
 	return _depth_cd
 
@@ -237,16 +247,62 @@ func torpedo_speed() -> float:
 
 
 ## Resource Ships: the island this ship is mining - it has stopped within `mining_reach` of
-## the shore of any island (Home Bases are not islands). null otherwise.
+## the shore of an island (Home Bases are not islands; nor are its own side's Minor and Major
+## islands) and claimed it. Only one of a side's
+## Resource Ships mines any one island: the first to anchor keeps it, and another of the same
+## side beside it mines a different island in reach, or nothing. Other sides (allies
+## included) may mine the same island. null otherwise.
 func mining_island() -> Island:
-	if not stats.mines_islands or not is_combat_ready() or has_destination() \
-			or velocity.length() > MINING_MAX_SPEED:
-		return null
-	var reach: float = GameData.balance().mining_reach
+	return _mining_claim if _claim_valid(_mining_claim) else null
+
+
+func _can_mine_now() -> bool:
+	return stats.mines_islands and is_combat_ready() and not has_destination() 		and velocity.length() <= MINING_MAX_SPEED
+
+
+## Close enough to mine `island`, and allowed to: never a capturable island this ship's own
+## side owns (those already pay their own income and have docks).
+func _in_mining_reach(island: Island) -> bool:
+	if island.is_capturable() and island.owner_team == team:
+		return false
+	var limit: float = island.radius + GameData.balance().mining_reach
+	return position.distance_squared_to(island.position) <= limit * limit
+
+
+func _claim_valid(island: Island) -> bool:
+	return island != null and is_instance_valid(island) and _can_mine_now() and _in_mining_reach(island)
+
+
+## Host: keeps this Resource Ship's claim, or takes the first island in reach that none of
+## its own side's other Resource Ships holds.
+func _update_mining_claim() -> void:
+	if _claim_valid(_mining_claim):
+		return
+	_mining_claim = null
+	if not _can_mine_now():
+		return
 	for island: Island in match_ref.islands:
-		var limit: float = island.radius + reach
-		if position.distance_squared_to(island.position) <= limit * limit:
+		if _in_mining_reach(island) and mining_rival(island) == null:
+			_mining_claim = island
+			return
+
+
+## Resource Ships: an island this ship is stopped beside but cannot mine because another of
+## its side's Resource Ships already mines it (for the HUD). null otherwise.
+func blocked_mining_island() -> Island:
+	if mining_island() != null or not _can_mine_now():
+		return null
+	for island: Island in match_ref.islands:
+		if _in_mining_reach(island) and mining_rival(island) != null:
 			return island
+	return null
+
+
+## Another Resource Ship of this side already mining `island`, or null.
+func mining_rival(island: Island) -> Ship:
+	for other: Ship in match_ref.ships:
+		if other != self and other.team == team and other.stats.mines_islands and other.mining_island() == island:
+			return other
 	return null
 
 
@@ -408,6 +464,8 @@ func _physics_process(delta: float) -> void:
 	_update_orders(delta)
 	_update_movement(delta)
 	_update_weapons(delta)
+	if stats.mines_islands:
+		_update_mining_claim()
 
 
 func _process(delta: float) -> void:
@@ -663,8 +721,8 @@ func _update_weapons(delta: float) -> void:
 			_aa_barrage()
 
 
-## Super Battleship flak: every `periodic_aa_interval` seconds each enemy squadron within
-## range is shot down with `periodic_aa_chance`. The timer starts when planes come in range.
+## Flak barrage (Super Battleship, AA Cruiser): every `periodic_aa_interval` seconds each
+## enemy squadron within range is shot down with `periodic_aa_chance`. The timer starts when planes come in range.
 func _aa_barrage() -> void:
 	var targets: Array[PlaneSquadron] = []
 	var r2: float = stats.periodic_aa_range * stats.periodic_aa_range
@@ -1090,7 +1148,7 @@ func _auto_strike_valid() -> bool:
 
 ## Dive bombers: each launch goes to the ordered strike target while it has room in its
 ## stack (`squadrons_per_target`), otherwise to the nearest spotted enemy in plane range that
-## has room. A Heavy Carrier can so work several targets at once, up to 5 squadrons on each;
+## has room. A Supercarrier can so work several targets at once, up to 5 squadrons on each;
 ## a Light Carrier is capped at `max_total_squadrons` in the air.
 func _launch_squadrons() -> void:
 	var launched: bool = false
@@ -1193,7 +1251,8 @@ func net_write(out: PackedFloat32Array) -> void:
 		_gun_cd, _torp_cd, _plane_cd, _depth_cd, float(airborne_squadrons()),
 		float(_net_strike_ref if replica else match_ref.combatant_ref(strike_target)),
 		float(_net_auto_ref if replica else match_ref.combatant_ref(_auto_strike)), _sec_cd,
-		_torpedo_bomber_cd, _depth_bomber_cd]))
+		_torpedo_bomber_cd, _depth_bomber_cd, _aa_cd,
+		float(_net_mining if replica else match_ref.islands.find(mining_island()))]))
 
 
 ## Replica: takes this ship's state from a snapshot. `snap` jumps straight to the new position.
@@ -1215,6 +1274,8 @@ func net_read(data: PackedFloat32Array, at: int, snap: bool) -> void:
 	_sec_cd = data[at + 19]
 	_torpedo_bomber_cd = data[at + 20]
 	_depth_bomber_cd = data[at + 21]
+	_aa_cd = data[at + 22]
+	_net_mining = int(data[at + 23])
 	_net_age = 0.0
 	if snap or under_construction or position.distance_to(net_pos) > NET_SNAP_DISTANCE:
 		position = net_pos
@@ -1250,7 +1311,7 @@ func shows_range_rings() -> bool:
 
 
 ## One Vector2(radius, kind) per weapon system: kind 0 = guns, 1 = torpedoes, 2 = aircraft,
-## 3 = secondary guns.
+## 3 = secondary guns, 4 = flak barrage.
 func range_rings() -> PackedVector2Array:
 	var rings: PackedVector2Array = PackedVector2Array()
 	if stats.has_guns():
@@ -1261,11 +1322,14 @@ func range_rings() -> PackedVector2Array:
 		rings.append(Vector2(stats.plane_range, 2.0))
 	if stats.has_secondaries():
 		rings.append(Vector2(stats.secondary_range, 3.0))
+	if stats.has_periodic_aa():
+		rings.append(Vector2(stats.periodic_aa_range, 4.0))
 	return rings
 
 
 func _draw_range_rings() -> void:
-	var colors: Array[Color] = [RING_GUN_COLOR, RING_TORPEDO_COLOR, RING_PLANE_COLOR, RING_SECONDARY_COLOR]
+	var colors: Array[Color] = [RING_GUN_COLOR, RING_TORPEDO_COLOR, RING_PLANE_COLOR, RING_SECONDARY_COLOR,
+		RING_AA_COLOR]
 	for ring: Vector2 in range_rings():
 		var segments: int = clampi(int(ring.x / 8.0), 48, 160)
 		draw_arc(Vector2.ZERO, ring.x, 0.0, TAU, segments, colors[int(ring.y)], 2.0, true)
@@ -1340,18 +1404,13 @@ func _draw_mining_marker(half_l: float) -> void:
 	draw_arc(badge + Vector2(2.5, -2.5), 4.5, PI * 0.75, PI * 1.75, 8, Color(0.35, 0.22, 0.05), 2.0)
 
 
-## The island this Resource Ship is mining (a replica judges by the synced speed).
+## The island this Resource Ship is mining (a replica takes it from the host's snapshot).
 func shown_mining_island() -> Island:
 	if not match_ref.replica:
 		return mining_island()
-	if not stats.mines_islands or not is_combat_ready() or velocity.length() > MINING_MAX_SPEED:
+	if not is_combat_ready() or _net_mining < 0 or _net_mining >= match_ref.islands.size():
 		return null
-	var reach: float = GameData.balance().mining_reach
-	for island: Island in match_ref.islands:
-		var limit: float = island.radius + reach
-		if position.distance_squared_to(island.position) <= limit * limit:
-			return island
-	return null
+	return match_ref.islands[_net_mining]
 
 
 func draw_dashes(from: Vector2, to: Vector2, color: Color, width: float, dash: float) -> void:

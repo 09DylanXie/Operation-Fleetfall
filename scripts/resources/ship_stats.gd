@@ -3,7 +3,7 @@ extends Resource
 ## Balance data for one ship class. One .tres per class lives in res://data/ships/.
 
 ## New classes are appended so saved class ids (network, data files) stay valid.
-enum ShipClass { DD, SS, CL, CA, BB, CV, BC, SBB, RS, RD, LCV }
+enum ShipClass { DD, SS, CL, CA, BB, CV, BC, SBB, RS, RD, LCV, CLAA }
 enum TorpedoMode { NONE, AUTO_BROADSIDE, MANUAL_BOW_STERN }
 
 @export_group("Identity")
@@ -103,15 +103,21 @@ enum TorpedoMode { NONE, AUTO_BROADSIDE, MANUAL_BOW_STERN }
 @export var torpedo_bomber_interval: float = 0.0
 @export var max_torpedo_bombers: int = 0
 ## Torpedo flights sent per launch, spread round-robin over up to this many capital targets
-## (the ordered strike target first, then the nearest). The Heavy Carrier sends 3.
+## (the ordered strike target first, then the nearest). The Supercarrier sends 3.
 @export var torpedo_flights_per_launch: int = 1
 ## Most torpedo flights from this carrier in the air against any one target.
 @export var torpedo_flights_per_target: int = 1
 ## Depth-charge bombers: one flight every this many seconds against spotted submarines. 0 = none.
 @export var depth_bomber_interval: float = 0.0
 @export var max_depth_bombers: int = 0
-## Multiplies the HE bomb damage of this carrier's dive bombers (Heavy Carrier 1.1).
+## Multiplies the HE bomb damage of this carrier's dive bombers (Supercarrier 1.1).
 @export var bomb_damage_multiplier: float = 1.0
+
+@export_group("Limits")
+## Most of this class a side may have at once, afloat, on the slip and queued. 0 = no limit.
+@export var max_active: int = 0
+## Most of this class a side may launch in a whole match. 0 = no limit.
+@export var max_per_game: int = 0
 
 @export_group("Support")
 ## Resource Ship: anchored by an island (not a Home Base) it earns a Minor island's income.
@@ -122,8 +128,8 @@ enum TorpedoMode { NONE, AUTO_BROADSIDE, MANUAL_BOW_STERN }
 @export_group("Anti-Air")
 ## Chance (0-1) that this ship shoots down a squadron each time it is bombed.
 @export var aa_kill_chance: float = 0.0
-## Defensive anti-air barrage (Super Battleship): every `periodic_aa_interval` seconds each
-## enemy squadron within `periodic_aa_range` is shot down with this chance. 0 = none.
+## Defensive anti-air barrage (Super Battleship, AA Cruiser): every `periodic_aa_interval`
+## seconds each enemy squadron within `periodic_aa_range` is shot down with this chance. 0 = none.
 @export var periodic_aa_chance: float = 0.0
 @export var periodic_aa_interval: float = 10.0
 @export var periodic_aa_range: float = 0.0
@@ -135,10 +141,10 @@ static func is_capital_class(cls: ShipClass) -> bool:
 
 
 ## Non-combat hulls (Resource Ship, Radar Ship): no weapons at all. They never capture or
-## contest islands.
+## contest islands. (The AA Cruiser has no guns, but its flak makes it a warship.)
 func is_support() -> bool:
 	return not has_guns() and not has_planes() and torpedo_mode == TorpedoMode.NONE \
-		and not has_depth_charges() and not has_secondaries()
+		and not has_depth_charges() and not has_secondaries() and not has_periodic_aa()
 
 
 func has_torpedo_bombers() -> bool:
@@ -204,4 +210,6 @@ func engage_range() -> float:
 		best = maxf(best, torpedo_range)
 	if has_planes():
 		best = maxf(best, plane_range)
+	if has_periodic_aa():
+		best = maxf(best, periodic_aa_range)
 	return best

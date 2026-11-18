@@ -150,8 +150,11 @@ func try_enqueue_ship(ship_class: ShipStats.ShipClass) -> String:
 	var balance: GameBalance = GameData.balance()
 	if queue.size() >= balance.max_queue_length:
 		return "Build queue is full"
-	if match_ref.fleet_count(team) >= balance.fleet_cap:
-		return "Fleet cap reached (%d ships)" % balance.fleet_cap
+	if match_ref.fleet_count(team) >= match_ref.fleet_cap(team):
+		return "Fleet cap reached (%d ships)" % match_ref.fleet_cap(team)
+	var limit: String = match_ref.class_limit_reason(team, ship_class)
+	if limit != "":
+		return limit
 	if not match_ref.economy.spend(team, stats.gold_cost, stats.steel_cost):
 		return "Not enough resources for a %s (%dG / %dS)" % [stats.display_name, stats.gold_cost, stats.steel_cost]
 	var order: BuildOrder = BuildOrder.new()
@@ -285,6 +288,7 @@ func _physics_process(delta: float) -> void:
 		var ship: Ship = hull
 		hull = null
 		ship.complete_construction()
+		match_ref.record_launch(team, ship.stats.ship_class)
 		var jitter: Vector2 = Vector2.from_angle(match_ref.rng.randf() * TAU) * match_ref.rng.randf_range(0.0, 70.0)
 		ship.order_move(rally_point + jitter)
 		_finish_head()

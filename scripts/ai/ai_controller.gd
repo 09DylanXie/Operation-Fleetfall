@@ -274,11 +274,13 @@ func _think_production() -> void:
 			if not _queue_upgrade_if_affordable(forward):
 				saving = saving or total >= 6
 	_buy_radar()
-	if saving or total >= GameData.balance().fleet_cap:
+	if saving or total >= match_ref.fleet_cap(team):
 		return
 
 	var counts: Dictionary[int, int] = _class_counts()
 	for cls: ShipStats.ShipClass in _desired_classes(counts, _max_tier(my_yards), total):
+		if match_ref.class_limit_reason(team, cls) != "":
+			continue
 		var yard: Shipyard = _yard_for(cls, my_yards)
 		if yard == null:
 			continue
@@ -303,6 +305,7 @@ func _desired_classes(counts: Dictionary[int, int], best_tier: int, total: int) 
 	var rs: int = counts[int(ShipStats.ShipClass.RS)]
 	var rd: int = counts[int(ShipStats.ShipClass.RD)]
 	var lcv: int = counts[int(ShipStats.ShipClass.LCV)]
+	var claa: int = counts[int(ShipStats.ShipClass.CLAA)]
 	var want: Array[ShipStats.ShipClass] = []
 	if dd < 3:
 		want.append(ShipStats.ShipClass.DD)
@@ -320,6 +323,9 @@ func _desired_classes(counts: Dictionary[int, int], best_tier: int, total: int) 
 		if cv < 2 and bb >= 1:
 			want.append(ShipStats.ShipClass.CV)
 	if best_tier >= 2:
+		# AA Cruisers: one escort once the fleet grows, one more per enemy carrier seen.
+		if claa < mini(3, (1 if total >= 10 else 0) + _enemy_carriers_seen()):
+			want.append(ShipStats.ShipClass.CLAA)
 		if lcv < 1 and total >= 6:
 			want.append(ShipStats.ShipClass.LCV)
 		if ca < 5 and ca <= cl:
@@ -337,6 +343,16 @@ func _desired_classes(counts: Dictionary[int, int], best_tier: int, total: int) 
 	elif dd < 10:
 		want.append(ShipStats.ShipClass.DD)
 	return want
+
+
+## Enemy carriers this side can currently see.
+func _enemy_carriers_seen() -> int:
+	var count: int = 0
+	for enemy: Combatant in match_ref.vision.spotted_enemies(team):
+		var ship: Ship = enemy as Ship
+		if ship != null and ship.is_alive() and ship.stats.has_planes():
+			count += 1
+	return count
 
 
 func _yard_for(cls: ShipStats.ShipClass, my_yards: Array[Shipyard]) -> Shipyard:
@@ -470,7 +486,7 @@ func _think_army() -> void:
 
 	match army_state:
 		ArmyState.BUILDUP:
-			var cap: int = GameData.balance().fleet_cap
+			var cap: int = match_ref.fleet_cap(team)
 			var threshold: float = minf(WAVE_BASE_STRENGTH + WAVE_STEP_STRENGTH * float(waves_launched), WAVE_MAX_STRENGTH)
 			var ready: bool = _strength(army) >= threshold or match_ref.fleet_count(team) >= cap - 2
 			if threat == null and ready and army.size() >= 4:
@@ -582,6 +598,11 @@ func _run_assault() -> void:
 			if ship.torpedo_order == null:
 				_issue(ship, "screen", ship.order_move.bind(post))
 			continue
+		if _is_aa_escort(ship):
+			# AA Cruisers have no guns: they sail in the middle of the wave to cover it from the air.
+			var solo: Array[Ship] = [ship]
+			_move_group(solo, match_ref.nav.nearest_free(_wave_center(ship), true), "escort")
+			continue
 		# Deal with armed defenders first, then siege the base. Orders are compared with the
 		# ship's actual state so a dropped order is always re-issued.
 		var reach: float = ship.stats.gun_range if ship.stats.has_guns() else ship.stats.engage_range()
@@ -597,6 +618,22 @@ func _run_assault() -> void:
 		elif ship.priority_target != want:
 			_command(ship, "", ship.order_attack.bind(want))
 		_order_keys.erase(ship)
+
+
+## A gunless warship whose only weapon is flak (the AA Cruiser).
+static func _is_aa_escort(ship: Ship) -> bool:
+	return ship.stats.has_periodic_aa() and not ship.stats.has_guns() and not ship.stats.has_planes()
+
+
+## Centre of the wave's fighting ships (not counting `skip` or other escorts).
+func _wave_center(skip: Ship) -> Vector2:
+	var center: Vector2 = Vector2.ZERO
+	var count: int = 0
+	for other: Ship in _wave:
+		if other != skip and other.is_alive() and not _is_aa_escort(other):
+			center += other.position
+			count += 1
+	return center / float(count) if count > 0 else skip.position
 
 
 func _end_wave() -> void:

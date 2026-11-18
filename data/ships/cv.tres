@@ -5,8 +5,8 @@
 [resource]
 script = ExtResource("1")
 ship_class = 5
-code = "HCV"
-display_name = "Heavy Carrier"
+code = "SCV"
+display_name = "Supercarrier"
 gold_cost = 1500
 steel_cost = 600
 build_time = 60.0
@@ -49,3 +49,5 @@ torpedo_flights_per_target = 3
 depth_bomber_interval = 2.0
 bomb_damage_multiplier = 1.1
 max_depth_bombers = 3
+max_active = 2
+max_per_game = 4

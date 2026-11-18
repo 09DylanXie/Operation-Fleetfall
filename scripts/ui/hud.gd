@@ -228,17 +228,17 @@ func _build_ui() -> void:
 	_build_box = VBoxContainer.new()
 	column.add_child(_build_box)
 	_build_box.add_theme_constant_override("separation", 5)
-	# Every class in one row of cards, in hotkey order (1-9, 0, -).
+	# Every class in one row of cards, smallest to largest, in hotkey order (1-9, 0, -, =).
 	var grid: GridContainer = GridContainer.new()
 	grid.columns = GameData.all_classes().size()
 	grid.add_theme_constant_override("h_separation", 4)
 	grid.add_theme_constant_override("v_separation", 4)
 	_build_box.add_child(grid)
-	var index: int = 1
+	var index: int = 0
 	for cls: ShipStats.ShipClass in GameData.all_classes():
 		var stats: ShipStats = GameData.ship(cls)
 		var button: Button = Button.new()
-		var hotkey: String = "-" if index == 11 else str(index % 10)
+		var hotkey: String = PlayerController.BUILD_KEY_LABELS[index] if index < PlayerController.BUILD_KEY_LABELS.size() else ""
 		button.text = "%s  %s\n%dG %dS" % [hotkey, stats.code, stats.gold_cost, stats.steel_cost]
 		button.tooltip_text = "%s - Tier %d shipyard, %ds build" % [
 			stats.display_name, stats.required_shipyard_tier, int(stats.build_time)]
@@ -566,9 +566,9 @@ func _refresh_all() -> void:
 	_gold_label.text = "%d  +%d" % [economy.gold[team], income.x]
 	_steel_label.text = "%d  +%d" % [economy.steel[team], income.y]
 	var fleet: int = match_ref.fleet_count(team)
-	_fleet_label.text = "%d / %d" % [fleet, GameData.balance().fleet_cap]
-	_fleet_label.add_theme_color_override("font_color",
-		UITheme.BAD if fleet >= GameData.balance().fleet_cap else UITheme.TEXT)
+	var cap: int = match_ref.fleet_cap(team)
+	_fleet_label.text = "%d / %d" % [fleet, cap]
+	_fleet_label.add_theme_color_override("font_color", UITheme.BAD if fleet >= cap else UITheme.TEXT)
 	_tick_label.text = "Supply %ds" % int(ceil(economy.time_to_tick))
 	_supply_icon.progress = 1.0 - clampf(economy.time_to_tick / maxf(GameData.balance().tick_interval, 0.1), 0.0, 1.0)
 	_supply_icon.queue_redraw()
@@ -688,9 +688,12 @@ func _refresh_selection(team: int) -> void:
 		for cls: ShipStats.ShipClass in GameData.all_classes():
 			var stats: ShipStats = GameData.ship(cls)
 			var button: Button = _build_buttons[int(cls)]
-			var buildable: bool = yard.can_build_class(cls)
+			var limit: String = match_ref.class_limit_reason(team, cls)
+			var buildable: bool = yard.can_build_class(cls) and limit == ""
 			var affordable: bool = match_ref.economy.can_afford(team, stats.gold_cost, stats.steel_cost)
 			button.disabled = not buildable or not affordable
+			if stats.max_active > 0 or stats.max_per_game > 0:
+				_show_class_limit(button, cls, team, limit)
 			# Short of money (but the yard could build it): tinted red rather than greyed out.
 			button.modulate = Color(1.0, 0.62, 0.58) if buildable and not affordable else Color.WHITE
 		if yard.tier < yard.max_tier:
@@ -734,6 +737,11 @@ func _refresh_selection(team: int) -> void:
 			lines.append("Torpedoes (right-click a ship to fire): %.0fs" % ship.torpedo_cooldown())
 			if ship.reveal_timer > 0.0:
 				lines.append("REVEALED for %.0fs" % ship.reveal_timer)
+		if ship.stats.has_periodic_aa():
+			lines.append("Flak (auto): %d%% per squadron within %d every %.0fs   next %s" % [
+				int(round(ship.stats.periodic_aa_chance * 100.0)), int(ship.stats.periodic_aa_range),
+				ship.stats.periodic_aa_interval,
+				"ready" if ship.flak_cooldown() <= 0.0 else "%.1fs" % ship.flak_cooldown()])
 		if ship.stats.has_depth_charges():
 			lines.append("Depth charges (auto, subs within %d): %s" % [int(ship.stats.depth_charge_range),
 				"ready" if ship.depth_charge_cooldown() <= 0.0 else "%.1fs" % ship.depth_charge_cooldown()])
@@ -748,12 +756,15 @@ func _refresh_selection(team: int) -> void:
 			else:
 				lines.append("Air wing launches on its own - right-click picks its target")
 		if ship.stats.mines_islands:
-			var mine: Island = ship.mining_island()
+			var mine: Island = ship.shown_mining_island()
 			if mine != null:
 				lines.append("Mining %s: +%dG / +%dS per supply tick" % [mine.display_name(),
 					GameData.balance().minor_gold, GameData.balance().minor_steel])
+			elif ship.blocked_mining_island() != null:
+				lines.append("Not mining - another of your Resource Ships already mines %s" %
+					ship.blocked_mining_island().display_name())
 			else:
-				lines.append("Not mining - stop next to any island to mine it")
+				lines.append("Not mining - stop next to an island you do not own to mine it")
 		elif ship.stats.is_support():
 			lines.append("Unarmed - spots surface ships out to %d" % int(ship.stats.spotting_range))
 		var dock: Shipyard = match_ref.dock_of(ship)
@@ -785,6 +796,25 @@ func _refresh_selection(team: int) -> void:
 		_hp_bar.visible = true
 		_show_hp(total, most)
 		_info_label.text = "  ".join(parts)
+
+
+## Limited classes (SBB, SCV) show how many the side has against the limit on the card,
+## and the reason in the tooltip when the limit stops another order.
+func _show_class_limit(button: Button, cls: ShipStats.ShipClass, team: int, limit: String) -> void:
+	var stats: ShipStats = GameData.ship(cls)
+	var index: int = GameData.all_classes().find(cls)
+	var hotkey: String = PlayerController.BUILD_KEY_LABELS[index] if index >= 0 and index < PlayerController.BUILD_KEY_LABELS.size() else ""
+	var have: int = match_ref.class_count(team, cls).x
+	var tag: String = " %d/%d" % [have, stats.max_active] if stats.max_active > 0 else ""
+	button.text = "%s  %s%s\n%dG %dS" % [hotkey, stats.code, tag, stats.gold_cost, stats.steel_cost]
+	var tip: String = "%s - Tier %d shipyard, %ds build" % [stats.display_name, stats.required_shipyard_tier, int(stats.build_time)]
+	if stats.max_active > 0:
+		tip += "\nAt most %d at a time" % stats.max_active
+	if stats.max_per_game > 0:
+		tip += "\n%d per game: %d launched" % [stats.max_per_game, match_ref.launched_count(team, cls)]
+	if limit != "":
+		tip += "\n" + limit
+	button.tooltip_text = tip
 
 
 ## Hit points as a gauge that runs from green through amber to red.
