@@ -14,7 +14,12 @@ var traveled: float = 0.0
 var ignore_armor: bool = false
 var from_submarine: bool = false
 var match_ref: Match = null
+## Stable id given by the Match, used to replicate projectiles to network clients.
+var net_id: int = 0
+## Replica: where the host last said this projectile is.
+var net_pos: Vector2 = Vector2.ZERO
 var _frame: int = 0
+var _net_age: float = 0.0
 
 
 func launch(p_match: Match, p_team: int, origin: Vector2, angle: float, p_damage: float,
@@ -41,11 +46,11 @@ func _advance_ballistic(delta: float) -> bool:
 		if collider is Island:
 			# The shore of an enemy-held island: the hit lands on its garrison.
 			var fort: IslandGarrison = (collider as Island).garrison
-			if fort != null and fort.is_alive() and fort.team != team:
+			if fort != null and fort.is_alive() and fort.is_enemy_of(team):
 				struck = fort
 		if struck != null:
 			struck.apply_damage(damage, ignore_armor, from_submarine)
-			match_ref.spawn_effect(point, Effect.Kind.HIT)
+			match_ref.spawn_effect(point, Effect.Kind.TORPEDO_HIT if self is Torpedo else Effect.Kind.HIT)
 		else:
 			match_ref.spawn_effect(point, Effect.Kind.SPLASH)
 		queue_free()
@@ -57,6 +62,29 @@ func _advance_ballistic(delta: float) -> bool:
 		queue_free()
 		return false
 	return true
+
+
+## Speed over the sea right now, as sent to network clients.
+func net_speed() -> float:
+	return speed
+
+
+## Replica: news from the host.
+func net_update(at: Vector2, heading: float, current_speed: float) -> void:
+	net_pos = at
+	position = at
+	rotation = heading
+	direction = Vector2.from_angle(heading)
+	speed = current_speed
+	_net_age = 0.0
+	if match_ref.create_ui:
+		visible = match_ref.is_point_visible_to_local(position, team)
+
+
+## Replica: flies on along the last known course between snapshots.
+func net_advance(delta: float) -> void:
+	_net_age = minf(_net_age + delta, Ship.NET_EXTRAPOLATE_TIME)
+	position = net_pos + direction * speed * _net_age
 
 
 func _update_fog_visibility() -> void:

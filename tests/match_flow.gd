@@ -30,8 +30,12 @@ func _check(condition: bool, message: String) -> void:
 		_failures += 1
 
 
+## Waits `count` rendered frames (and a physics step each). Awaiting physics frames alone is not
+## enough: after a slow scene load Godot runs several catch-up physics steps in one frame, before
+## a deferred scene change has happened.
 func _frames(count: int) -> void:
 	for i: int in count:
+		await get_tree().process_frame
 		await get_tree().physics_frame
 
 
@@ -43,7 +47,7 @@ func _drive_cmdline() -> void:
 	_check(get_tree().change_scene_to_file(GameSettings.MENU_SCENE) == OK, "start menu loads")
 	await _frames(5)
 	var auto: Match = _current_match()
-	_check(auto != null and auto.map_data.size == GameData.map_config_for(MapConfig.Size.LARGE).map_size,
+	_check(auto != null and auto.map_data.size == GameData.map_config_for(MapConfig.Size.LARGE).size_for(2),
 		"--size=large skips the menu and starts a large match")
 	if auto != null:
 		auto.hud._on_main_menu_pressed()
@@ -54,7 +58,7 @@ func _drive_cmdline() -> void:
 			menu.size_buttons[0].pressed.emit()
 			await _frames(5)
 			var picked: Match = _current_match()
-			_check(picked != null and picked.map_data.size == GameData.map_config_for(MapConfig.Size.SMALL).map_size,
+			_check(picked != null and picked.map_data.size == GameData.map_config_for(MapConfig.Size.SMALL).size_for(2),
 				"the menu's choice beats the command line afterwards")
 	print("MATCH FLOW " + ("PASSED" if _failures == 0 else "FAILED (%d)" % _failures))
 	get_tree().quit(0 if _failures == 0 else 1)
@@ -93,7 +97,7 @@ func _drive() -> void:
 		get_tree().quit(1)
 		return
 	var first_id: int = first.get_instance_id()
-	var medium: Vector2 = GameData.map_config_for(MapConfig.Size.MEDIUM).map_size
+	var medium: Vector2 = GameData.map_config_for(MapConfig.Size.MEDIUM).size_for(2)
 	_check(first.map_data.size == medium, "Medium gives the medium map (%s)" % first.map_data.size)
 	_check(first.hud != null and first.player != null and first.fog != null and first.camera != null,
 		"HUD, player controller, fog and camera exist")
@@ -151,7 +155,7 @@ func _drive() -> void:
 	menu_again.size_buttons[0].pressed.emit()
 	await _frames(5)
 	var small_match: Match = _current_match()
-	var small: Vector2 = GameData.map_config_for(MapConfig.Size.SMALL).map_size
+	var small: Vector2 = GameData.map_config_for(MapConfig.Size.SMALL).size_for(2)
 	_check(small_match != null and small_match.map_data.size == small, "Small gives the small map")
 	if small_match != null:
 		await _frames(600)
@@ -165,7 +169,7 @@ func _drive() -> void:
 			menu_third.size_buttons[2].pressed.emit()
 			await _frames(5)
 			var large_match: Match = _current_match()
-			_check(large_match != null and large_match.map_data.size == GameData.map_config_for(MapConfig.Size.LARGE).map_size,
+			_check(large_match != null and large_match.map_data.size == GameData.map_config_for(MapConfig.Size.LARGE).size_for(2),
 				"Large gives the large map")
 
 	print("MATCH FLOW " + ("PASSED" if _failures == 0 else "FAILED (%d)" % _failures))

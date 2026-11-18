@@ -27,6 +27,9 @@ var shipyard: Shipyard = null
 var garrison: IslandGarrison = null
 ## Times this island's garrison has been shot down.
 var times_fallen: int = 0
+## Radar bought by the owner (Major islands with a Tier 3 shipyard): DD-level spotting.
+## Lost when the island changes hands.
+var has_radar: bool = false
 var match_ref: Match = null
 var selected: bool = false
 var _tick: float = 0.0
@@ -46,6 +49,11 @@ func _ready() -> void:
 	collision_mask = 0
 	var collision: CollisionPolygon2D = get_node("Collision") as CollisionPolygon2D
 	collision.polygon = polygon
+	if match_ref == null or match_ref.create_ui:
+		var terrain: IslandTerrain = IslandTerrain.new()
+		terrain.name = "Terrain"
+		terrain.setup(int(kind), radius, shallow_radius, polygon, position)
+		add_child(terrain)
 	if kind == Kind.MINOR and shallow_radius > 0.0:
 		# Shallow water marker on its own layer; navigation enforces the draft rule.
 		var area: Area2D = Area2D.new()
@@ -93,6 +101,43 @@ func capture_radius() -> float:
 	return balance.minor_capture_radius if kind == Kind.MINOR else balance.major_capture_radius
 
 
+## True when this island runs an air base and can buy radar: a Major island whose
+## shipyard has reached Tier 3.
+func has_air_base() -> bool:
+	return kind == Kind.MAJOR and owner_team >= 0 and shipyard != null and shipyard.tier >= 3
+
+
+func spotting_range() -> float:
+	var balance: GameBalance = GameData.balance()
+	return balance.radar_spotting if has_radar else balance.island_spotting
+
+
+## "" if `team` may buy radar here now, otherwise the reason it may not.
+func radar_block_reason(team: int) -> String:
+	if owner_team != team:
+		return "Not your island"
+	if kind != Kind.MAJOR:
+		return "Radar can only be built on a Major island"
+	if not has_air_base():
+		return "Radar needs a Tier 3 shipyard on this island"
+	if has_radar:
+		return "This island already has radar"
+	return ""
+
+
+## Buys radar for `team`. Returns "" on success or the reason it was refused.
+func try_buy_radar(team: int) -> String:
+	var problem: String = radar_block_reason(team)
+	if problem != "":
+		return problem
+	var balance: GameBalance = GameData.balance()
+	if not match_ref.economy.spend(team, balance.radar_gold_cost, balance.radar_steel_cost):
+		return "Not enough resources for radar (%dG / %dS)" % [balance.radar_gold_cost, balance.radar_steel_cost]
+	has_radar = true
+	queue_redraw()
+	return ""
+
+
 func income() -> Vector2i:
 	var balance: GameBalance = GameData.balance()
 	match kind:
@@ -104,7 +149,7 @@ func income() -> Vector2i:
 
 
 func _physics_process(delta: float) -> void:
-	if match_ref == null or match_ref.is_over:
+	if match_ref == null or match_ref.is_over or match_ref.replica:
 		return
 	_tick += delta
 	if _tick >= CAPTURE_TICK:
@@ -115,19 +160,25 @@ func _physics_process(delta: float) -> void:
 ## A team captures a neutral island by keeping combat-ready ships inside the radius,
 ## uncontested, for capture_time. An owned island is not captured: its garrison must fall.
 func _update_capture(dt: float) -> void:
-	var present: Array[int] = [0, 0]
+	var present: Array[int] = [0, 0, 0, 0]
 	var r2: float = capture_radius() * capture_radius()
 	for ship: Ship in match_ref.ships:
-		if ship.is_combat_ready() and ship.position.distance_squared_to(position) <= r2:
+		# Non-combat hulls (Resource and Radar Ships) neither capture nor contest islands.
+		if ship.is_combat_ready() and not ship.stats.is_support() and ship.position.distance_squared_to(position) <= r2:
 			present[ship.team] += 1
-	contested = present[0] > 0 and present[1] > 0
+	# Contested when two sides that are not allies are both here. Allies do not block
+	# each other: the lowest-numbered side present takes the island.
+	var team_here: int = -1
+	contested = false
+	for t: int in present.size():
+		if present[t] <= 0:
+			continue
+		if team_here < 0:
+			team_here = t
+		elif match_ref.are_enemies(team_here, t):
+			contested = true
 	if contested:
 		return
-	var team_here: int = -1
-	if present[0] > 0:
-		team_here = 0
-	elif present[1] > 0:
-		team_here = 1
 	if team_here == -1 or owner_team >= 0:
 		capture_progress = maxf(0.0, capture_progress - dt)
 		if capture_progress <= 0.0:
@@ -147,6 +198,7 @@ func set_owner_team(new_owner: int) -> void:
 	owner_team = new_owner
 	capture_progress = 0.0
 	capturing_team = -1
+	has_radar = false
 	if shipyard != null:
 		shipyard.reassign(new_owner)
 	if garrison != null:
@@ -167,18 +219,9 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
+	# The land itself is drawn once by the IslandTerrain child; this draws what changes.
 	if polygon.size() < 3:
 		return
-	if kind == Kind.MINOR and shallow_radius > 0.0:
-		draw_circle(Vector2.ZERO, shallow_radius, Color(0.16, 0.42, 0.5, 0.45))
-		draw_arc(Vector2.ZERO, shallow_radius, 0.0, TAU, 64, Color(0.4, 0.75, 0.8, 0.35), 1.5)
-	var sand: PackedVector2Array = PackedVector2Array()
-	var inner: PackedVector2Array = PackedVector2Array()
-	for p: Vector2 in polygon:
-		sand.append(p)
-		inner.append(p * 0.8)
-	draw_colored_polygon(sand, Color(0.78, 0.7, 0.5))
-	draw_colored_polygon(inner, Color(0.24, 0.42, 0.24) if kind != Kind.MAJOR else Color(0.3, 0.36, 0.3))
 	if not is_capturable():
 		return
 	DockArt.draw(self, shipyard, position, match_ref.local_team if match_ref != null else -1)
@@ -201,6 +244,13 @@ func _draw() -> void:
 		var frac: float = clampf(capture_progress / GameData.balance().capture_time, 0.0, 1.0)
 		var cap_color: Color = Ship.TEAM_COLORS[capturing_team]
 		draw_arc(Vector2.ZERO, radius + 14.0, -PI * 0.5, -PI * 0.5 + TAU * frac, 48, cap_color, 5.0)
+	if has_radar:
+		# Radar mast on the hill, with a slowly turning antenna.
+		var mast: Vector2 = Vector2(-radius * 0.3, -radius * 0.25)
+		draw_circle(mast, 5.0, Color(0.3, 0.31, 0.3))
+		var sweep: float = Time.get_ticks_msec() * 0.0025
+		draw_line(mast - Vector2.from_angle(sweep) * 9.0, mast + Vector2.from_angle(sweep) * 9.0,
+			Color(0.8, 0.82, 0.84), 2.5)
 	if garrison != null and garrison.is_alive() and match_ref.is_combatant_visible_to_local(garrison):
 		# Garrison hit points, like the bar over a Home Base (shown to whoever can see the garrison).
 		var bar_w: float = radius * 1.5

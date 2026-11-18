@@ -15,6 +15,11 @@ const CL: ShipStats.ShipClass = ShipStats.ShipClass.CL
 const CA: ShipStats.ShipClass = ShipStats.ShipClass.CA
 const BB: ShipStats.ShipClass = ShipStats.ShipClass.BB
 const CV: ShipStats.ShipClass = ShipStats.ShipClass.CV
+const BC: ShipStats.ShipClass = ShipStats.ShipClass.BC
+const SBB: ShipStats.ShipClass = ShipStats.ShipClass.SBB
+const RS: ShipStats.ShipClass = ShipStats.ShipClass.RS
+const RD: ShipStats.ShipClass = ShipStats.ShipClass.RD
+const LCV: ShipStats.ShipClass = ShipStats.ShipClass.LCV
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -81,9 +86,11 @@ func add_island(map: MapData, kind: int, at: Vector2, radius: float) -> void:
 	map.add_island(kind, at, radius, shallow, MapData.circle_polygon(radius))
 
 
-func start(map: MapData, control: Array[int] = [NONE, NONE], ui: bool = false, levels: Array[int] = []) -> Match:
+func start(map: MapData, control: Array[int] = [NONE, NONE], ui: bool = false, levels: Array[int] = [],
+		alliances: Array[int] = []) -> Match:
 	var m: Match = (load(MAIN_SCENE) as PackedScene).instantiate() as Match
 	m.map_override = map
+	m.alliance = alliances
 	m.ai_difficulty = levels
 	m.map_seed = 4242
 	m.team_control = control
@@ -132,13 +139,21 @@ func count_projectiles(m: Match, script_class: String) -> int:
 func test_01_roster_matches_design_doc() -> void:
 	# code: [gold, steel, build, speed, armor, fire rate, required tier]
 	var expected: Dictionary = {
-		DD: ["DD", 100, 50, 15.0, 1.0, 0.0, 4.0, 1],
-		SS: ["SS", 150, 75, 20.0, 0.5, 0.0, 20.0, 1],
-		CL: ["CL", 250, 150, 30.0, 0.7, 0.05, 4.0, 2],
-		CA: ["CA", 400, 250, 45.0, 0.5, 0.15, 5.333, 2],
-		BB: ["BB", 800, 600, 90.0, 0.3, 0.25, 8.0, 3],
-		CV: ["CV", 1000, 400, 120.0, 0.9, 0.0, 10.0, 3],
+		# Build times are half the original roster's; CA through SBB sail 1.5x faster, then
+		# CA -15% and BC / BB / SBB -5%.
+		DD: ["DD", 100, 50, 7.5, 1.0, 0.0, 4.0, 1],
+		SS: ["SS", 150, 75, 10.0, 0.5, 0.0, 20.0, 1],
+		CL: ["CL", 250, 150, 15.0, 0.7, 0.05, 4.0, 2],
+		CA: ["CA", 400, 250, 22.5, 0.6375, 0.15, 5.333, 2],
+		BB: ["BB", 800, 600, 45.0, 0.4275, 0.25, 8.0, 3],
+		CV: ["HCV", 1500, 600, 60.0, 0.9, 0.0, 10.0, 3],
+		BC: ["BC", 650, 450, 37.5, 0.513, 0.2, 8.0, 3],
+		SBB: ["SBB", 1040, 780, 58.5, 0.38475, 0.3, 11.0, 3],
+		RS: ["RS", 250, 150, 15.0, 0.5, 0.0, 4.0, 1],
+		RD: ["RD", 150, 75, 10.0, 0.8, 0.0, 4.0, 1],
+		LCV: ["LCV", 500, 200, 30.0, 0.9, 0.0, 10.0, 2],
 	}
+	check(GameData.all_classes().size() == expected.size(), "every class is in the roster")
 	for cls: ShipStats.ShipClass in GameData.all_classes():
 		var s: ShipStats = GameData.ship(cls)
 		var row: Array = expected[cls]
@@ -169,7 +184,7 @@ func test_01_roster_matches_design_doc() -> void:
 	check_near(bb.spotting_range, cl.spotting_range * 2.0 / 3.0, "BB spots 2/3 as far as a cruiser")
 	check_near(cv.spotting_range, bb.spotting_range / 3.0, "CV spots 1/3 as far as a BB")
 	check_near(ss.spotting_range, 0.0, "SS spots nothing")
-	check(dd.gun_mounts == 2 and dd.shells_per_mount == 1, "DD 2x single")
+	check(dd.gun_mounts == 4 and dd.shells_per_mount == 1, "DD 4x single (Benson layout)")
 	check(cl.gun_mounts == 3 and cl.shells_per_mount == 3, "CL 3x triple")
 	check(ca.gun_mounts == 4 and ca.shells_per_mount == 2, "CA 4x double")
 	check(bb.gun_mounts == 3 and bb.shells_per_mount == 2, "BB 3x double")
@@ -178,11 +193,39 @@ func test_01_roster_matches_design_doc() -> void:
 	check(dd.torpedo_mode == ShipStats.TorpedoMode.AUTO_BROADSIDE, "DD auto broadside torpedoes")
 	check_near(dd.torpedo_interval, 30.0, "DD torpedo cooldown")
 	check(not cv.has_guns() and cv.torpedo_mode == ShipStats.TorpedoMode.NONE and cv.has_planes(), "CV planes only")
-	check_near(cv.plane_interval, 10.0, "CV sends a squadron every 10s")
-	check(cv.max_squadrons == 5 and cv.squadrons_per_launch == 1, "CV keeps up to 5 squadrons airborne")
+	check_near(cv.plane_interval, 3.333, "Heavy Carrier sends a dive-bomber squadron every 3.3s (5s cut by a third)", 0.01)
+	check_near(cv.bomb_damage_multiplier, 1.1, "Heavy Carrier bombs hit 10% harder")
+	check(cv.torpedo_flights_per_launch == 3 and cv.torpedo_flights_per_target == 3, "Heavy Carrier sends 3 torpedo flights, up to 3 per target")
+	check(cv.squadrons_per_target == 5 and cv.max_total_squadrons == 0 and cv.squadrons_per_launch == 1,
+		"Heavy Carrier stacks up to 5 dive-bomber squadrons on each target, with no overall cap")
+	var lcv: ShipStats = GameData.ship(LCV)
+	check_near(lcv.plane_interval, 5.0, "Light Carrier keeps 5s dive bombers")
+	check(lcv.torpedo_flights_per_launch == 1 and lcv.max_torpedo_bombers == 1, "Light Carrier: one torpedo flight at a time")
+	check_near(lcv.bomb_damage_multiplier, 1.0, "Light Carrier bombs are standard")
+	check(lcv.max_total_squadrons == 5 and lcv.max_squadrons == 5, "Light Carrier has at most 5 squadrons up")
+	check_near(lcv.plane_range, cv.plane_range * 0.5, "Light Carrier plane range is half the Heavy Carrier's")
+	check(lcv.has_torpedo_bombers() and lcv.has_depth_bombers(), "Light Carrier flies all three roles")
+	check(not ShipStats.is_capital_class(LCV), "torpedo bombers do not go after a Light Carrier")
+	check(cv.has_torpedo_bombers() and absf(cv.torpedo_bomber_interval - 6.667) < 0.01, "CV torpedo bombers every 6.7s")
+	check(cv.has_depth_bombers() and is_equal_approx(cv.depth_bomber_interval, 2.0), "CV depth-charge bombers every 2s")
+	check_near(cv.plane_range, 1300.0 * 1.3 * 1.2, "Heavy Carrier plane range: +30%, then +20%")
+	check(ss.torpedoes_per_launch == 3, "SS launches 3 torpedoes")
+	for cls: ShipStats.ShipClass in [BC, BB, SBB, CV]:
+		check(ShipStats.is_capital_class(cls), "%s may be attacked by torpedo bombers" % GameData.ship(cls).code)
+	for cls: ShipStats.ShipClass in [DD, SS, CL, CA, RS, RD]:
+		check(not ShipStats.is_capital_class(cls), "%s is too small for torpedo bombers" % GameData.ship(cls).code)
+	var rs: ShipStats = GameData.ship(RS)
+	var rd: ShipStats = GameData.ship(RD)
+	check(rs.is_support() and rd.is_support() and rs.mines_islands and not rd.mines_islands, "RS and RD are unarmed support hulls")
+	check(rs.gold_cost == cl.gold_cost and rs.steel_cost == cl.steel_cost, "a Resource Ship costs as much as a CL")
+	check(rs.max_hp <= 100.0, "a Resource Ship has almost no HP")
+	check(rd.gold_cost == ss.gold_cost and rd.steel_cost == ss.steel_cost, "a Radar Ship costs as much as a SS")
+	check_near(rd.spotting_range, dd.spotting_range * 1.5, "a Radar Ship spots 1.5x as far as a DD")
+	check_near(rd.max_hp, dd.max_hp * 0.5, "a Radar Ship has half a DD's HP")
+	check(not rd.detects_submarines, "Radar Ships spot surface ships only")
 	check_near(dd.torpedo_speed_scale, 0.5, "DD torpedoes run at half the standard torpedo speed")
 	check_near(ss.torpedo_speed_scale, 1.0, "SS torpedoes run at the standard torpedo speed")
-	for cls: ShipStats.ShipClass in [CL, CA, BB]:
+	for cls: ShipStats.ShipClass in [CL, CA, BB, BC, SBB]:
 		check_near(GameData.ship(cls).aa_kill_chance, 0.2, "%s anti-air downs 1 squadron in 5" % GameData.ship(cls).code)
 	for cls: ShipStats.ShipClass in [DD, SS, CV]:
 		check_near(GameData.ship(cls).aa_kill_chance, 0.0, "%s has no anti-air" % GameData.ship(cls).code)
@@ -190,8 +233,7 @@ func test_01_roster_matches_design_doc() -> void:
 	check(cl.gun_dps() > dd.gun_dps() * 3.0 and ca.gun_dps() > cl.gun_dps(), "cruiser gun damage is well above a destroyer's")
 	check(cl.gun_dps() / float(cl.gold_cost) > dd.gun_dps() / float(dd.gold_cost),
 		"a CL does more gun damage per gold than a DD")
-	check(ca.gun_dps() / float(ca.gold_cost) > dd.gun_dps() / float(dd.gold_cost),
-		"a CA does more gun damage per gold than a DD")
+	check(ca.gun_dps() > dd.gun_dps() * 3.0, "a CA out-guns three destroyers")
 	check(dd.shallow_draft and ss.shallow_draft, "DD and SS are shallow draft")
 	check(not cl.shallow_draft and not ca.shallow_draft and not bb.shallow_draft and not cv.shallow_draft,
 		"cruisers and capital ships are deep draft")
@@ -202,6 +244,26 @@ func test_01_roster_matches_design_doc() -> void:
 	check(GameData.torpedo_speed() < bb.shell_speed and GameData.torpedo_speed() > bb.shell_speed * 0.8,
 		"torpedo slightly slower than BB shell")
 	check_near(GameData.plane_speed(), 0.5 * GameData.torpedo_speed(), "planes at 50% torpedo speed")
+	# Super Battleship and Battlecruiser are defined relative to the Battleship.
+	var sbb: ShipStats = GameData.ship(SBB)
+	var bc: ShipStats = GameData.ship(BC)
+	check_near(sbb.speed_factor, bb.speed_factor * 0.9, "SBB is 10% slower than a BB")
+	check_near(sbb.shell_damage, bb.shell_damage * 1.3, "SBB shells hit 30% harder")
+	check_near(sbb.fire_interval, bb.fire_interval + 3.0, "SBB reloads 3s slower than a BB")
+	check_near(sbb.base_armor, 0.3, "SBB armor 30%")
+	check(sbb.gold_cost == roundi(bb.gold_cost * 1.3) and sbb.steel_cost == roundi(bb.steel_cost * 1.3), "SBB costs 30% more than a BB")
+	check_near(sbb.max_hp, bb.max_hp * 1.1, "SBB has 10% more HP")
+	check_near(sbb.periodic_aa_chance, 0.4, "SBB flak downs a squadron 2 times in 5")
+	check_near(sbb.periodic_aa_interval, 10.0, "SBB flak fires every 10s")
+	check(not sbb.can_target_submarines and not bc.can_target_submarines, "SBB and BC cannot target submarines")
+	check_near(bc.base_armor, 0.2, "BC armor 20%")
+	check_near(bc.speed_factor, bb.speed_factor * 1.2, "BC is 20% faster than a BB")
+	check_near(bc.fire_interval, bb.fire_interval, "BC reloads like a BB")
+	check(bc.gun_mounts == 4 and bc.shells_per_mount == 4, "BC 4x quad")
+	check_near(bc.shell_damage, bb.shell_damage * 0.4, "BC shells do 60% less damage than a BB's")
+	check_near(bc.max_hp, bb.max_hp * 0.8, "BC has 20% less HP")
+	for cls: ShipStats.ShipClass in [DD, SS, CL, CA, BB, BC, CV]:
+		check(not GameData.ship(cls).has_periodic_aa(), "%s has no flak barrage" % GameData.ship(cls).code)
 	var b: GameBalance = GameData.balance()
 	check(GameData.bomb_damage() > 0.0 and is_equal_approx(GameData.bomb_damage(), b.bomb_damage), "bomb damage comes from balance data")
 	check_near(b.bomb_interval, 3.0, "squadrons bomb every 3s")
@@ -249,7 +311,7 @@ func test_02_every_scene_script_and_resource_loads() -> void:
 		check(script != null and script.can_instantiate(), "script compiles: " + path)
 	var resources: Array[String] = []
 	_collect("res://data", ".tres", resources)
-	check(resources.size() == 10, "found all data resources (%d)" % resources.size())
+	check(resources.size() == 15, "found all data resources (%d)" % resources.size())
 	for path: String in resources:
 		check(load(path) != null, "resource loads: " + path)
 	check(load("res://assets/shaders/fog.gdshader") != null, "fog shader loads")
@@ -311,6 +373,9 @@ func test_05_per_turret_arcs_and_line_of_sight() -> void:
 	add_island(map, MapData.KIND_COVER, Vector2(950.0, 1150.0), 40.0)
 	var m: Match = await start(map)
 	var bb: Ship = m.spawn_ship(BB, 0, Vector2(1000.0, 1000.0), 0.0)
+	# Main turrets only: the target is inside secondary range (test_31 covers secondaries).
+	bb.stats = bb.stats.duplicate() as ShipStats
+	bb.stats.secondary_mounts = 0
 	var target: Ship = hull(m, BB, 1, Vector2(1000.0, 1400.0))
 	spotter(m, 0, Vector2(1250.0, 1450.0))
 	check(bb.mount_bears_on(0, target.position) and bb.mount_bears_on(2, target.position), "broadside: all turrets bear")
@@ -521,7 +586,7 @@ func test_10_submarine_manual_fire_homing_and_reveal() -> void:
 	check(not sub.order_torpedo(m.bases[1]), "torpedo order on the Home Base is refused")
 	check(sub.order_attack(target), "manual torpedo order accepted")
 	await frames(2)
-	check(sub.torpedoes_launched == 2, "torpedoes launch on command (got %d)" % sub.torpedoes_launched)
+	check(sub.torpedoes_launched == 3, "three torpedoes launch on command (got %d)" % sub.torpedoes_launched)
 	check_near(sub.reveal_timer, 15.0, "reveal penalty starts at 15s", 0.1)
 	check(sub.torpedo_order == null, "one salvo per order")
 	check_near(sub.torpedo_cooldown(), 20.0, "20s reload", 0.1)
@@ -554,9 +619,9 @@ func test_10_submarine_manual_fire_homing_and_reveal() -> void:
 			stern_shot = node as Torpedo
 	check(stern_shot != null and absf(angle_difference(stern_shot.direction.angle(), PI)) < 0.2,
 		"astern target is engaged from the stern tube")
-	# Homing lasts exactly 2s, then the course locks.
+	# Homing lasts exactly 2s against anything but a battleship, then the course locks.
 	var runner: Ship = m.spawn_ship(SS, 0, Vector2(2000.0, 300.0))
-	var decoy: Ship = hull(m, BB, 1, Vector2(1000.0, 2100.0))
+	var decoy: Ship = hull(m, CA, 1, Vector2(1000.0, 2100.0))
 	var free_run: Torpedo = m.spawn_torpedo(runner, Vector2(2000.0, 300.0), 0.0, 6000.0, decoy,
 		GameData.balance().sub_homing_time)
 	var start_dir: Vector2 = free_run.direction
@@ -567,6 +632,36 @@ func test_10_submarine_manual_fire_homing_and_reveal() -> void:
 	var locked: Vector2 = free_run.direction
 	await seconds(1.0)
 	check(is_instance_valid(free_run) and free_run.direction.is_equal_approx(locked), "course is locked after the ping")
+	# Against Battleships and Super Battleships the torpedoes track far more closely.
+	var b: GameBalance = GameData.balance()
+	for cls: ShipStats.ShipClass in [BB, SBB]:
+		var big: Ship = hull(m, cls, 1, Vector2(1000.0, 2100.0))
+		var tracker: Torpedo = m.spawn_torpedo(runner, Vector2(2000.0, 300.0), 0.0, 6000.0, big, b.sub_homing_time)
+		check_near(tracker.homing_time_left, b.sub_battleship_homing_time, "%s: torpedoes home for longer" % big.stats.code)
+		check_near(tracker.homing_turn_rate, deg_to_rad(b.sub_battleship_homing_turn_deg), "%s: and turn harder" % big.stats.code)
+		tracker.queue_free()
+		big.kill()
+	var bc_target: Ship = hull(m, BC, 1, Vector2(1000.0, 2000.0))
+	var bc_shot: Torpedo = m.spawn_torpedo(runner, Vector2(2000.0, 300.0), 0.0, 6000.0, bc_target, b.sub_homing_time)
+	check_near(bc_shot.homing_time_left, b.sub_homing_time, "a Battlecruiser gets the normal homing ping")
+	check_near(bc_shot.homing_turn_rate, deg_to_rad(b.torpedo_homing_turn_deg), "and the normal turn rate")
+	bc_shot.queue_free()
+	bc_target.kill()
+	# A battleship steaming across the torpedo's path is followed; a heavy cruiser is missed.
+	var dodger: Ship = m.spawn_ship(BB, 1, Vector2(2600.0, 1300.0), 0.0)
+	var dodger_ca: Ship = m.spawn_ship(CA, 1, Vector2(1400.0, 1300.0), 0.0)
+	for ship: Ship in [dodger, dodger_ca]:
+		ship.max_hp = 100000.0
+		ship.hp = 100000.0
+	var at_bb: Torpedo = m.spawn_torpedo(runner, Vector2(2600.0, 700.0), PI * 0.5, 3000.0, dodger, b.sub_homing_time)
+	var at_ca: Torpedo = m.spawn_torpedo(runner, Vector2(1400.0, 700.0), PI * 0.5, 3000.0, dodger_ca, b.sub_homing_time)
+	at_bb.damage = 1.0
+	at_ca.damage = 1.0
+	dodger.order_move(Vector2(3600.0, 1300.0))
+	dodger_ca.order_move(Vector2(2400.0, 1300.0))
+	await seconds(10.0)
+	check(dodger.hp < 100000.0, "a torpedo follows a battleship that steams across its path")
+	check(is_equal_approx(dodger_ca.hp, 100000.0), "a heavy cruiser doing the same is missed")
 
 
 func test_11_submarines_cannot_hurt_the_home_base() -> void:
@@ -586,6 +681,15 @@ func test_11_submarines_cannot_hurt_the_home_base() -> void:
 
 # --- Carriers ---------------------------------------------------------------
 
+## Turns a carrier's torpedo and depth-charge bombers off (or back on) so a test can count
+## dive-bomber squadrons alone.
+func dive_bombers_only(only: bool) -> void:
+	for cls: ShipStats.ShipClass in [CV, LCV]:
+		var cv: ShipStats = GameData.ship(cls)
+		cv.torpedo_bomber_interval = 0.0 if only else (6.667 if cls == CV else 10.0)
+		cv.depth_bomber_interval = 0.0 if only else (2.0 if cls == CV else 3.0)
+
+
 func squadrons_of(m: Match) -> Array[PlaneSquadron]:
 	var result: Array[PlaneSquadron] = []
 	for node: Node in m.projectiles():
@@ -595,17 +699,24 @@ func squadrons_of(m: Match) -> Array[PlaneSquadron]:
 
 
 func test_12_carrier_launches_on_its_own_and_takes_orders() -> void:
+	dive_bombers_only(true)
+	await _carrier_dive_bombers()
+	dive_bombers_only(false)
+
+
+## Light Carrier: at most 5 squadrons in the air, so the whole wing works one target.
+func _carrier_dive_bombers() -> void:
 	var map: MapData = open_map()
-	add_island(map, MapData.KIND_COVER, Vector2(1500.0, 1200.0), 120.0)
+	add_island(map, MapData.KIND_COVER, Vector2(1350.0, 1200.0), 100.0)
 	var m: Match = await start(map)
-	var cv: Ship = m.spawn_ship(CV, 0, Vector2(1000.0, 1200.0))
-	var target: Ship = hull(m, BB, 1, Vector2(2000.0, 1200.0))
+	var cv: Ship = m.spawn_ship(LCV, 0, Vector2(1000.0, 1200.0))
+	var target: Ship = hull(m, BB, 1, Vector2(1800.0, 1200.0))
 	target.max_hp = 100000.0
 	target.hp = 100000.0
-	var other: Ship = hull(m, BB, 1, Vector2(2000.0, 1500.0))
+	var other: Ship = hull(m, BB, 1, Vector2(1800.0, 1450.0))
 	other.max_hp = 100000.0
 	other.hp = 100000.0
-	var scout: Ship = spotter(m, 0, Vector2(1750.0, 1200.0))
+	var scout: Ship = spotter(m, 0, Vector2(1600.0, 1200.0))
 	var bomb: float = GameData.bomb_damage()
 	check(cv.squadrons_launched == 0, "nothing is in the air before the enemy is spotted")
 	var waited: int = 0
@@ -639,7 +750,7 @@ func test_12_carrier_launches_on_its_own_and_takes_orders() -> void:
 	check(first.bombs_dropped == 1, "no second bomb run inside 3s")
 	await seconds(0.4)
 	check(first.bombs_dropped == 2, "the same squadron bombs again after 3s (got %d)" % first.bombs_dropped)
-	# A new squadron every 10 seconds, up to five in the air.
+	# A new squadron every 5 seconds, up to five in the air.
 	var launch_times: Array[float] = [launched_at]
 	var first_bombs_at_six: int = -1
 	waited = 0
@@ -653,8 +764,8 @@ func test_12_carrier_launches_on_its_own_and_takes_orders() -> void:
 	check(first_bombs_at_six == 4, "and keeps bombing every 3s while it hovers (got %d)" % first_bombs_at_six)
 	check(first.position.distance_to(target.position) < 220.0, "the squadron stays on station over the target")
 	check(cv.squadrons_launched == 5 and launch_times.size() == 5, "five squadrons are sent up (got %d)" % cv.squadrons_launched)
-	for i: int in range(1, launch_times.size()):
-		check_near(launch_times[i] - launch_times[i - 1], 10.0, "squadron %d follows 10s after the one before" % (i + 1), 0.1)
+	# The fifth goes up 4 x 5s after the first (the loop sees that launch on its frame).
+	check_near(launch_times[launch_times.size() - 1] - launched_at, 20.0, "a squadron follows every 5s", 0.1)
 	await seconds(25.0)
 	check(cv.squadrons_launched == 5 and cv.airborne_squadrons() == 5 and count_projectiles(m, "PlaneSquadron") == 5,
 		"no more than five squadrons fly at once (launched %d)" % cv.squadrons_launched)
@@ -679,11 +790,14 @@ func test_12_carrier_launches_on_its_own_and_takes_orders() -> void:
 	await seconds(4.0)
 	check(other.hp < hp_before_move, "squadrons keep bombing while the carrier repositions")
 	check(is_equal_approx(target.hp, hp_left_alone), "the first target is left alone meanwhile")
-	# Stop drops the order; the air wing goes back to choosing for itself.
+	# Stop drops the order; the air wing goes back to choosing for itself (squadrons on a
+	# live target in reach stay on it).
 	cv.order_stop()
 	check(cv.strike_target == null, "stop drops the ordered strike")
+	var hp_after_stop: float = other.hp
 	await seconds(8.0)
-	check(cv.air_target() == target and target.hp < hp_left_alone, "the air wing returns to its own choice of target")
+	check(cv.air_target() == target, "the air wing goes back to its own choice of target")
+	check(other.hp < hp_after_stop, "squadrons already on a live target keep at it")
 	check(cv.airborne_squadrons() == 5, "and the squadrons stay up")
 	# With nothing left to see, the squadrons come home.
 	scout.kill()
@@ -699,7 +813,7 @@ func test_12_carrier_launches_on_its_own_and_takes_orders() -> void:
 
 func test_12b_anti_air_shoots_squadrons_down() -> void:
 	var m: Match = await start(open_map())
-	var cv: Ship = m.spawn_ship(CV, 0, Vector2(1000.0, 1200.0))
+	var cv: Ship = m.spawn_ship(LCV, 0, Vector2(1000.0, 1200.0))
 	var cruiser: Ship = m.spawn_ship(CA, 1, Vector2(1900.0, 1200.0))
 	spotter(m, 0, Vector2(1900.0, 1650.0))
 	var ca_stats: ShipStats = GameData.ship(CA)
@@ -713,12 +827,18 @@ func test_12b_anti_air_shoots_squadrons_down() -> void:
 	# Certain anti-air: every squadron is lost on its first bomb run - after dropping.
 	ca_stats.aa_kill_chance = 1.0
 	check(cv.order_strike(cruiser), "strike ordered")
-	await seconds(8.0)
+	var waited: int = 0
+	while cv.squadrons_lost < 1 and waited < 600:
+		await frames(1)
+		waited += 1
 	check(cv.squadrons_launched == 1 and cv.squadrons_lost == 1, "the squadron is shot down (lost %d)" % cv.squadrons_lost)
 	check(cv.airborne_squadrons() == 0 and count_projectiles(m, "PlaneSquadron") == 0, "a downed squadron is gone")
 	check_near(cruiser.max_hp - cruiser.hp, GameData.bomb_damage(), "its bombs still landed, ignoring armor", 0.01)
-	await seconds(10.0)
-	check(cv.squadrons_launched == 2 and cv.squadrons_lost == 2, "the replacement launched 10s later is lost too (lost %d)" % cv.squadrons_lost)
+	waited = 0
+	while cv.squadrons_lost < 2 and waited < 600:
+		await frames(1)
+		waited += 1
+	check(cv.squadrons_launched == 2 and cv.squadrons_lost == 2, "the replacement launched 5s later is lost too (lost %d)" % cv.squadrons_lost)
 	check_near(cruiser.max_hp - cruiser.hp, 2.0 * GameData.bomb_damage(), "two bomb runs landed", 0.01)
 	# No anti-air: squadrons survive.
 	ca_stats.aa_kill_chance = 0.0
@@ -739,16 +859,22 @@ func test_12b_anti_air_shoots_squadrons_down() -> void:
 
 
 func test_12c_air_strike_ends_with_contact_reach_or_carrier() -> void:
+	dive_bombers_only(true)
+	await _carrier_strike_limits()
+	dive_bombers_only(false)
+
+
+func _carrier_strike_limits() -> void:
 	var m: Match = await start(open_map())
 	var cv: Ship = m.spawn_ship(CV, 0, Vector2(1000.0, 1200.0))
 	var target: Ship = hull(m, BB, 1, Vector2(1900.0, 1200.0))
 	target.max_hp = 100000.0
 	target.hp = 100000.0
-	var far: Ship = hull(m, BB, 1, Vector2(2900.0, 1900.0))
+	var far: Ship = hull(m, BB, 1, Vector2(3700.0, 2100.0))
 	far.max_hp = 100000.0
 	far.hp = 100000.0
 	var scout: Ship = spotter(m, 0, Vector2(1650.0, 1200.0))
-	spotter(m, 0, Vector2(2700.0, 1900.0))
+	spotter(m, 0, Vector2(3500.0, 2100.0))
 	await seconds(1.0)
 	check(target.spotted_by[0] and far.spotted_by[0], "both targets are spotted")
 	# A strike order alone never moves the carrier, so a target out of reach is refused.
@@ -759,16 +885,17 @@ func test_12c_air_strike_ends_with_contact_reach_or_carrier() -> void:
 	check(cv.order_strike(target), "strike ordered on the near target")
 	check(not cv.has_destination() and cv.priority_target == null, "a strike order does not move the carrier")
 	await seconds(8.0)
-	check(cv.airborne_squadrons() == 1 and target.hp < 100000.0, "the squadron is bombing")
+	check(cv.airborne_squadrons() >= 1 and target.hp < 100000.0, "the squadrons are bombing")
 	# Lost contact: no blind bombing, no new launches, strike dropped after 10s.
 	scout.kill()
 	await seconds(1.0)
 	check(not target.spotted_by[0], "contact is lost")
+	var launched_unseen: int = cv.squadrons_launched
 	var hp_unseen: float = target.hp
 	await seconds(Ship.STRIKE_LOST_TIME - 3.0)
 	check(cv.strike_target == target, "the strike holds for a few seconds without contact")
 	check(is_equal_approx(target.hp, hp_unseen), "squadrons do not bomb a target nobody can see")
-	check(cv.squadrons_launched == 1, "no squadron launches at an unseen target")
+	check(cv.squadrons_launched == launched_unseen, "no squadron launches at an unseen target")
 	await seconds(4.0)
 	check(cv.strike_target == null and cv.air_target() == null, "the strike is called off after 10s without contact")
 	await seconds(12.0)
@@ -784,7 +911,10 @@ func test_12c_air_strike_ends_with_contact_reach_or_carrier() -> void:
 		waited += 1
 	check(cv.squadrons_launched > launched_before, "squadrons launch once the carrier is in range")
 	check(cv.range_to(far) <= cv.stats.plane_range + 5.0, "and not before (range %.0f)" % cv.range_to(far))
-	await seconds(9.0)
+	waited = 0
+	while far.hp >= 100000.0 and waited < 60 * 40:
+		await frames(1)
+		waited += 1
 	check(far.hp < 100000.0 and count_projectiles(m, "PlaneSquadron") >= 1, "the far target is being bombed")
 	# A sunk carrier takes its air wing with it.
 	var hp_at_loss: float = far.hp
@@ -913,7 +1043,7 @@ func test_15b_owned_islands_are_fortified() -> void:
 	var saw_bar_damage: bool = false
 	for i: int in 90:
 		await seconds(1.0)
-		if fort.is_alive() and fort.hp < 600.0 and slip_hull == null:
+		if fort.is_alive() and fort.hp < 350.0 and slip_hull == null:
 			# Lay a hull down late enough that it is still on the slip when the island falls.
 			if a.shipyard.hull == null:
 				a.shipyard.enqueue_ship(DD)
@@ -1033,70 +1163,50 @@ func test_17_shipyard_tiers_gate_ship_classes() -> void:
 	check(not home.can_build_class(BB) and not home.can_build_class(CV), "capital ships still unavailable at home")
 	var gold_before: int = m.economy.gold[0]
 	check(major.enqueue_ship(BB), "battleship queued at tier 3")
-	check(gold_before == m.economy.gold[0], "nothing is charged when the order is queued")
+	check(gold_before - m.economy.gold[0] == 800, "the full cost is charged when the order is queued")
 	await frames(3)
-	check(gold_before - m.economy.gold[0] == 800, "battleship cost deducted when the keel is laid")
 	check(major.hull != null and major.hull.stats.ship_class == BB, "battleship hull laid down")
 	check(not m.nav.is_blocked(major.slip_position, false), "slip is in deep water")
-	check(major.cancel_last() == false, "the hull being built cannot be cancelled")
 	check(major.enqueue_ship(CV), "carrier queued behind it")
 	var gold_mid: int = m.economy.gold[0]
-	check(m.economy.gold[0] == gold_mid, "an order waiting in the queue has cost nothing yet")
-	check(major.cancel_last() and m.economy.gold[0] == gold_mid and major.queue.size() == 1,
-		"a queued order that has not started cancels at no cost")
+	check(major.cancel_last() and m.economy.gold[0] == gold_mid + 1500 and major.queue.size() == 1,
+		"cancelling a queued order refunds its full cost")
 
 
-func test_17b_build_queue_pays_on_start_and_never_idles() -> void:
+func test_17b_build_queue_pays_when_queued_and_never_idles() -> void:
 	var m: Match = await start(open_map())
 	var yard: Shipyard = m.bases[0].shipyard
-	m.economy.set_bank(0, 150, 75)
-	check(yard.enqueue_ship(DD) and yard.enqueue_ship(DD) and yard.enqueue_ship(SS),
-		"three ships can be queued with money for only one")
-	check(m.economy.gold[0] == 150 and m.economy.steel[0] == 75, "queueing costs nothing")
-	check(yard.unpaid_cost() == Vector2i(350, 175), "the yard knows what its queue will cost")
-	check(m.fleet_count(0) == 3, "unpaid orders still count toward the fleet cap")
-	await frames(2)
+	m.economy.set_bank(0, 250, 125)
+	check(yard.enqueue_ship(DD) and yard.enqueue_ship(SS), "two ships queued with the money for both")
+	check(m.economy.gold[0] == 0 and m.economy.steel[0] == 0, "both are paid for in full when queued")
+	check(yard.try_enqueue_ship(DD).contains("Not enough"), "an order the bank cannot cover is refused")
+	check(yard.queue.size() == 2 and m.fleet_count(0) == 2, "only the paid orders are queued")
 	check(yard.hull != null and yard.hull.under_construction and yard.queue[0].paid, "the first hull is laid down at once")
-	check(m.economy.gold[0] == 50 and m.economy.steel[0] == 25, "and paid for at that moment")
-	check(yard.unpaid_cost() == Vector2i(250, 125) and not yard.waiting_for_resources, "the rest of the queue is unpaid")
-	check(yard.can_cancel() and yard.cancel_last() and yard.queue.size() == 2, "an order that has not started can be cancelled")
-	check(m.economy.gold[0] == 50 and m.economy.steel[0] == 25, "cancelling it moves no money")
-	# First destroyer launches at 15s. The 15s income (50 G / 20 S) leaves 100 G / 45 S:
-	# not enough steel for the second, so the yard waits instead of dropping the order.
-	await seconds(16.0)
-	check(m.ships_of(0).size() == 1, "the first destroyer has launched")
-	check(yard.queue.size() == 1 and not yard.queue[0].paid and yard.hull == null, "the second order is still queued")
-	check(yard.waiting_for_resources, "the yard reports that it is waiting for resources")
-	check(m.economy.gold[0] == 100 and m.economy.steel[0] == 45, "nothing is charged while it waits (%d / %d)" % [
-		m.economy.gold[0], m.economy.steel[0]])
-	# The 30s income covers it: construction starts by itself.
-	await seconds(15.0)
-	check(yard.hull != null and yard.queue[0].paid and not yard.waiting_for_resources,
-		"construction starts by itself as soon as the bank can cover it")
-	check(m.economy.gold[0] == 50 and m.economy.steel[0] == 15, "and is paid for then (%d / %d)" % [
-		m.economy.gold[0], m.economy.steel[0]])
-	check(yard.queue[0].progress() > 0.02 and yard.queue[0].progress() < 0.12, "it began right after the 30s deposit")
-	check(not yard.can_cancel() and not yard.cancel_last(), "a hull that is being built cannot be cancelled")
-	# With money in the bank the next keel is laid in the same tick the previous ship launches.
-	m.economy.set_bank(0, 5000, 5000)
-	check(yard.enqueue_ship(DD), "third destroyer queued behind the one on the slip")
+	check(yard.unpaid_cost() == Vector2i.ZERO and not yard.waiting_for_resources, "nothing is owed")
+	check(yard.can_cancel() and yard.cancel_last() and yard.queue.size() == 1, "the last order can be cancelled")
+	check(m.economy.gold[0] == 150 and m.economy.steel[0] == 75, "and is refunded in full")
+	# The next keel is laid in the same tick the previous ship launches.
+	check(yard.enqueue_ship(SS), "submarine queued behind the destroyer on the slip")
 	var handoff: Array[bool] = []
 	yard.ship_launched.connect(func(ship: Ship) -> void: handoff.append(
 		yard.hull != null and yard.hull != ship and yard.hull.under_construction and yard.queue[0].paid))
-	var gold_before: int = m.economy.gold[0]
-	await seconds(15.0)
+	await seconds(GameData.ship(DD).build_time + 0.5)
+	check(m.ships_of(0).size() == 1, "the destroyer launched after its (halved) build time")
 	check(handoff.size() == 1 and handoff[0], "the next hull is on the slip the instant the previous ship launches")
-	check(m.ships_of(0).size() == 2, "the second destroyer has launched")
-	check(m.economy.gold[0] == gold_before + 50 - 100, "the third destroyer was paid for when it started")
-	# Upgrades follow the same rule.
-	var bank: Vector2i = Vector2i(m.economy.gold[0], m.economy.steel[0])
+	# Upgrades are paid when queued and refunded when cancelled, too.
+	m.economy.set_bank(0, 5000, 5000)
+	var cost: Vector2i = yard.upgrade_cost()
 	check(yard.enqueue_upgrade(), "upgrade queued behind the hull")
-	check(Vector2i(m.economy.gold[0], m.economy.steel[0]) == bank, "an upgrade is not charged when queued")
-	check(yard.unpaid_cost() == yard.upgrade_cost(), "its cost is still owed")
-	await seconds(15.0)
-	check(m.ships_of(0).size() == 3 and yard.queue.size() == 1 and yard.queue[0].is_upgrade and yard.queue[0].paid,
-		"the upgrade starts when the ship ahead of it launches")
-	check(m.economy.gold[0] == bank.x + 50 - yard.upgrade_cost().x, "and is paid for then")
+	check(m.economy.gold[0] == 5000 - cost.x and m.economy.steel[0] == 5000 - cost.y, "the upgrade is charged when queued")
+	var gold_before: int = m.economy.gold[0]
+	check(yard.cancel_last() and m.economy.gold[0] == gold_before + cost.x and yard.queue.size() == 1,
+		"a cancelled upgrade is refunded")
+	# Cancelling the order under construction scraps its hull and refunds it.
+	var slip_hull: Ship = yard.hull
+	gold_before = m.economy.gold[0]
+	check(yard.cancel_last() and yard.queue.is_empty() and yard.hull == null, "the hull being built can be cancelled")
+	check(m.economy.gold[0] == gold_before + GameData.ship(SS).gold_cost, "and its full cost comes back")
+	check(not slip_hull.is_alive() and not m.ships.has(slip_hull), "the unfinished hull is removed from the sea")
 
 
 func test_18_fleet_cap_counts_hulls_and_queue() -> void:
@@ -1174,15 +1284,14 @@ func test_19b_docks_repair_friendly_ships() -> void:
 	check(yard.repair_block_reason(cl).contains("Tier 2"), "and says why (%s)" % yard.repair_block_reason(cl))
 	check(not yard.can_repair(foe), "enemy ships are never repaired")
 	check(yard.repairing == 1, "the yard reports one ship under repair (got %d)" % yard.repairing)
-	# An order that cannot be paid for does not occupy the yard.
-	check(yard.enqueue_ship(DD), "destroyer queued with an empty bank")
-	await seconds(1.0)
-	check(not yard.is_building() and yard.waiting_for_resources, "the unpaid order has not started")
+	# An order that cannot be paid for is refused and does not occupy the yard.
+	check(not yard.enqueue_ship(DD), "a destroyer cannot be queued with an empty bank")
 	var hp_waiting: float = dd.hp
 	await seconds(1.0)
-	check(dd.hp > hp_waiting, "repairs carry on while the yard only waits for resources")
+	check(not yard.is_building() and dd.hp > hp_waiting, "repairs carry on while the yard is idle")
 	# Building stops all repairs.
 	m.economy.set_bank(0, 100, 50)
+	check(yard.enqueue_ship(DD), "destroyer queued once it can be paid for")
 	await frames(3)
 	check(yard.is_building() and yard.hull != null, "the yard is now building")
 	var hp_building: float = dd.hp
@@ -1276,10 +1385,11 @@ func test_20_pathfinding_routes_around_islands() -> void:
 				if ship.position.distance_to(island.position) < island.radius:
 					grounded = true
 	check(not grounded, "ships never cross land")
-	check(dd.position.distance_to(goal) < 20.0, "destroyer arrives (%.0f px away)" % dd.position.distance_to(goal))
+	# Arrival radius plus the few pixels the swell rocks a ship about.
+	check(dd.position.distance_to(goal) < 32.0, "destroyer arrives (%.0f px away)" % dd.position.distance_to(goal))
 	check(ca.position.distance_to(goal + Vector2(0.0, -120.0)) < 20.0, "heavy cruiser arrives")
 	check(not dd.has_destination(), "ship stops at its destination")
-	check_near(GameData.ship_speed(GameData.ship(BB)), 0.3 * GameData.ship_speed(GameData.ship(DD)), "BB at 30% of DD speed")
+	check_near(GameData.ship_speed(GameData.ship(BB)), 0.4275 * GameData.ship_speed(GameData.ship(DD)), "BB at 42.75% of DD speed")
 	# Ordering a move into land resolves to the nearest water.
 	dd.order_move(m.islands[0].position)
 	await seconds(12.0)
@@ -1317,6 +1427,53 @@ func test_21_procedural_maps_are_valid_and_seeded() -> void:
 	check(same, "the same seed reproduces the same map")
 
 
+func test_21c_maps_for_three_and_four_players() -> void:
+	var base_radius: float = GameData.balance().home_base_radius
+	for size: MapConfig.Size in [MapConfig.Size.SMALL, MapConfig.Size.MEDIUM, MapConfig.Size.LARGE]:
+		var cfg: MapConfig = GameData.map_config_for(size)
+		var label: String = GameSettings.size_name(size)
+		check(cfg.size_for(2).x < cfg.size_for(3).x and cfg.size_for(3).x < cfg.size_for(4).x,
+			"%s: the sea grows with the number of players" % label)
+		for players: int in [3, 4]:
+			for seed_value: int in range(1, 5):
+				var map: MapData = MapGenerator.generate(seed_value, cfg, base_radius, players)
+				var tag: String = "%s, %d players, seed %d" % [label, players, seed_value]
+				check(map.circular and map.size == cfg.size_for(players), "%s: round sea of the right size" % tag)
+				check(map.base_positions.size() == players, "%s: one Home Base per player" % tag)
+				check(MapGenerator.validate(map), "%s: everything is reachable" % tag)
+				var step: float = TAU / float(players)
+				var arm: Vector2 = map.base_positions[0] - map.center()
+				var minors: int = 0
+				var majors: int = 0
+				for i: int in map.base_positions.size():
+					check(map.base_positions[i].distance_to(map.center() + arm.rotated(step * float(i))) < 1.0,
+						"%s: bases are spaced evenly round the rim" % tag)
+				for def: MapData.IslandDef in map.islands:
+					if def.kind == MapData.KIND_MINOR:
+						minors += 1
+					elif def.kind == MapData.KIND_MAJOR:
+						majors += 1
+					check(map.contains(def.position, def.radius), "%s: islands lie inside the sea" % tag)
+					for base_pos: Vector2 in map.base_positions:
+						check(def.position.distance_to(base_pos) > def.radius + map.base_radius + 100.0,
+							"%s: islands keep clear of the bases" % tag)
+				check(minors == cfg.minor_per_side * players and majors == cfg.major_per_side * players + 1,
+					"%s: every player gets the same islands (%d minor, %d major)" % [tag, minors, majors])
+	# A four-sided match boots with a base, a bank and a dock for everyone.
+	var m: Match = (load(MAIN_SCENE) as PackedScene).instantiate() as Match
+	m.map_seed = 3
+	m.team_control = [NONE, NONE, NONE, NONE]
+	m.create_ui = false
+	add_child(m)
+	_match = m
+	await frames(3)
+	check(m.team_count == 4 and m.bases.size() == 4, "four sides, four Home Bases")
+	for team: int in 4:
+		check(m.bases[team].team == team and m.economy.gold[team] == GameData.balance().start_gold,
+			"side %d has its own base and starting bank" % team)
+		check(not m.nav.is_blocked(m.bases[team].shipyard.slip_position, true), "side %d's dock is in the water" % team)
+
+
 func test_21b_small_medium_and_large_maps() -> void:
 	var small: MapConfig = GameData.map_config_for(MapConfig.Size.SMALL)
 	var medium: MapConfig = GameData.map_config_for(MapConfig.Size.MEDIUM)
@@ -1334,7 +1491,7 @@ func test_21b_small_medium_and_large_maps() -> void:
 		var short_of_cover: int = 0
 		for seed_value: int in range(1, 21):
 			var map: MapData = MapGenerator.generate(seed_value, cfg, GameData.balance().home_base_radius)
-			check(map.size == cfg.map_size, "%s seed %d has the preset's dimensions" % [label, seed_value])
+			check(map.size == cfg.size_for(2) and map.circular, "%s seed %d has the preset's dimensions" % [label, seed_value])
 			check(MapGenerator.validate(map), "%s seed %d produces a fully reachable map" % [label, seed_value])
 			var minors: int = 0
 			var majors: int = 0
@@ -1346,8 +1503,7 @@ func test_21b_small_medium_and_large_maps() -> void:
 					majors += 1
 				else:
 					covers += 1
-				check(def.position.x > 0.0 and def.position.y > 0.0 and def.position.x < map.size.x and def.position.y < map.size.y,
-					"%s seed %d keeps islands on the map" % [label, seed_value])
+				check(map.contains(def.position, def.radius), "%s seed %d keeps islands on the map" % [label, seed_value])
 			# The full island count also proves the generator's emergency fallback map was not used.
 			check(minors == cfg.minor_per_side * 2 and majors == cfg.major_per_side * 2 + 1,
 				"%s seed %d has every capturable island (%d minor, %d major)" % [label, seed_value, minors, majors])
@@ -1364,7 +1520,9 @@ func test_21b_small_medium_and_large_maps() -> void:
 		add_child(m)
 		_match = m
 		await frames(3)
-		check(m.map_data.size == GameData.map_config_for(size).map_size, "the match uses the chosen map size")
+		check(m.map_data.size == GameData.map_config_for(size).size_for(2), "the match uses the chosen map size")
+		check(m.nav.is_blocked(Vector2(40.0, 40.0), true) and not m.nav.is_blocked(m.map_data.center() + Vector2(0.0, 300.0), true),
+			"the corners outside the round sea are closed to ships")
 		for yard: Shipyard in m.yards:
 			check(not m.nav.is_blocked(yard.slip_position, true), "every dock is in the water")
 		await _cleanup()
@@ -1458,7 +1616,7 @@ func test_22_player_input_select_move_attack_build() -> void:
 	check(loner.shows_range_rings() and not squad[0].shows_range_rings(), "a selected ship shows its range rings")
 	check(loner.range_rings() == PackedVector2Array([Vector2(480.0, 0.0), Vector2(620.0, 1.0)]),
 		"a destroyer has a gun ring and a torpedo ring (%s)" % loner.range_rings())
-	check(carrier.range_rings() == PackedVector2Array([Vector2(1300.0, 2.0)]), "a carrier has a plane-range ring")
+	check(carrier.range_rings() == PackedVector2Array([Vector2(2028.0, 2.0)]), "a carrier has a plane-range ring")
 	check(GameData.ship(SS).gun_mounts == 0 and m.spawn_ship(SS, 0, Vector2(900.0, 700.0)).range_rings()
 		== PackedVector2Array([Vector2(900.0, 1.0)]), "a submarine has a torpedo ring only")
 	m.hud._ranges_toggle.button_pressed = true
@@ -1487,7 +1645,7 @@ func test_22_player_input_select_move_attack_build() -> void:
 	check(carrier.strike_target == decoy and carrier.air_target() == decoy, "right-click on an enemy points the air wing at it")
 	await seconds(0.4)
 	await get_tree().process_frame
-	check(m.hud._info_label.text.contains("Squadrons airborne 1 / 5") and m.hud._info_label.text.contains("Air strike on your target"),
+	check(m.hud._info_label.text.contains("Squadrons airborne") and m.hud._info_label.text.contains("Air strike on your target"),
 		"HUD shows the air wing (%s)" % m.hud._info_label.text.replace("\n", " | "))
 	_key(KEY_X)
 	check(carrier.strike_target == null, "X hands the air wing back")
@@ -1498,9 +1656,9 @@ func test_22_player_input_select_move_attack_build() -> void:
 	check(m.player.selected_yard == m.bases[0].shipyard, "H selects the Home Base")
 	var gold: int = m.economy.gold[0]
 	_key(KEY_1)
-	check(m.bases[0].shipyard.queue.size() == 1 and gold == m.economy.gold[0], "hotkey 1 queues a destroyer")
+	check(m.bases[0].shipyard.queue.size() == 1 and gold - m.economy.gold[0] == 100, "hotkey 1 queues and pays for a destroyer")
 	await frames(2)
-	check(gold - m.economy.gold[0] == 100 and m.bases[0].shipyard.hull != null, "it is paid for as its hull is laid down")
+	check(m.bases[0].shipyard.hull != null, "its hull is laid down at once")
 	m.hud._on_build_pressed(SS)
 	check(m.bases[0].shipyard.queue.size() == 2, "HUD build button queues a submarine")
 	m.hud._on_build_pressed(BB)
@@ -1583,6 +1741,321 @@ func test_24_attack_order_on_an_unspotted_home_base() -> void:
 	await seconds(30.0)
 	check(bb.salvos_fired > 0, "a lone battleship closes until it can see and shell the base")
 
+func three_base_map() -> MapData:
+	var map: MapData = open_map()
+	map.base_positions.append(Vector2(2000.0, 200.0))
+	return map
+
+
+func test_26_three_sides_fight_until_one_is_left() -> void:
+	var map: MapData = three_base_map()
+	add_island(map, MapData.KIND_MAJOR, Vector2(2000.0, 900.0), 110.0)
+	var m: Match = await start(map, [NONE, NONE, NONE])
+	check(m.team_count == 3 and m.bases.size() == 3, "three sides, three Home Bases")
+	check(m.economy.gold[2] == GameData.balance().start_gold, "the third side has a bank")
+	check(m.are_enemies(0, 1) and m.are_enemies(1, 2) and m.are_enemies(0, 2) and not m.are_allies(0, 2),
+		"with no alliances everybody is everybody's enemy")
+	var island: Island = m.islands[0]
+	island.set_owner_team(2)
+	var target0: Ship = hull(m, BB, 0, Vector2(1800.0, 1700.0))
+	var target1: Ship = hull(m, BB, 1, Vector2(2200.0, 1700.0))
+	var gunner: Ship = m.spawn_ship(CL, 2, Vector2(2000.0, 1500.0), PI * 0.5)
+	var hull_hp: float = target0.hp
+	await seconds(8.0)
+	check(target0.spotted_by[2] and target1.spotted_by[2], "the third side spots both of the others")
+	check(target0.hp < hull_hp or target1.hp < hull_hp, "and shoots at them")
+	check(island.garrison.spotted_by[0] == false and island.garrison.is_enemy_of(0) and island.garrison.is_enemy_of(1),
+		"its island is hostile to both")
+	var income_before: Vector2i = m.economy.income_for(2)
+	var lost: Array[int] = []
+	m.team_eliminated.connect(func(team: int) -> void: lost.append(team))
+	m.bases[2].kill()
+	await frames(3)
+	check(not m.is_over and m.eliminated[2] and lost == [2], "losing a base knocks that side out but the match goes on")
+	check(not gunner.is_alive() and m.ships_of(2, false).is_empty(), "its fleet goes down with it")
+	check(island.owner_team == -1 and m.yards_of(2).is_empty(), "its islands and shipyards are abandoned")
+	check(income_before.x > 0 and m.economy.income_for(2) == Vector2i.ZERO, "and it earns nothing more")
+	check(target0.is_alive() and target1.is_alive(), "the other fleets are untouched")
+	m.bases[1].kill()
+	await frames(3)
+	check(m.is_over and m.winner == 0, "the last side standing wins")
+
+
+func test_27_allies_share_vision_and_victory() -> void:
+	var m: Match = await start(three_base_map(), [HUMAN, NONE, NONE], false, [], [7, 7, 9])
+	check(m.are_allies(0, 1) and not m.are_enemies(0, 1) and m.are_enemies(0, 2) and m.are_enemies(1, 2),
+		"sides 0 and 1 are allies against side 2")
+	check(m.local_team == 0, "the human plays side 0")
+	var friend: Ship = hull(m, BB, 1, Vector2(1000.0, 1500.0))
+	var gunner: Ship = m.spawn_ship(CL, 0, Vector2(1000.0, 1200.0), PI * 0.5)
+	check(not gunner.can_engage(friend) and not gunner.order_attack(friend), "an ally cannot be attacked")
+	var friend_hp: float = friend.hp
+	# An enemy far from side 0, seen only by the ally's scout.
+	var enemy: Ship = hull(m, BB, 2, Vector2(3000.0, 600.0))
+	var scout: Ship = spotter(m, 1, Vector2(3000.0, 900.0))
+	await seconds(8.0)
+	check(friend.hp == friend_hp, "allied ships do not shoot each other")
+	check(enemy.spotted_by[1] and enemy.spotted_by[0], "what an ally sees, the whole alliance sees")
+	check(m.is_combatant_visible_to_local(scout) and m.is_combatant_visible_to_local(friend), "allied ships are always visible")
+	check(m.vision.spotted_enemies(0).has(enemy) and not m.vision.spotted_enemies(0).has(friend),
+		"only real enemies are on the target list")
+	# A shell fired through an ally passes it by and hits the enemy behind.
+	var ally_wall: Ship = hull(m, BB, 1, Vector2(2500.0, 2000.0))
+	var foe: Ship = hull(m, BB, 2, Vector2(2700.0, 2000.0))
+	var hit: Dictionary = m.cast_projectile(Vector2(2300.0, 2000.0), Vector2(2900.0, 2000.0), 0)
+	check(not hit.is_empty() and hit["collider"] == foe, "shells pass allied hulls and strike the enemy")
+	check(ally_wall.is_alive(), "the ally is unharmed")
+	m.bases[1].kill()
+	await frames(3)
+	check(not m.is_over and m.eliminated[1], "losing an ally does not end the match")
+	m.bases[2].kill()
+	await frames(3)
+	check(m.is_over and m.are_allies(m.winner, 0), "the alliance wins when the last enemy base falls")
+	await _cleanup()
+	# The offline rule: when the local player's own alliance is out, the match is over.
+	var solo: Match = await start(three_base_map(), [HUMAN, NONE, NONE])
+	solo.bases[0].kill()
+	await frames(3)
+	check(solo.is_over and solo.winner != 0, "the match ends when the local player is knocked out")
+
+
+func test_28_commands_are_checked_before_they_run() -> void:
+	var m: Match = await start(three_base_map(), [HUMAN, NONE, NONE])
+	var mine: Ship = m.spawn_ship(CL, 0, Vector2(1000.0, 1500.0))
+	var theirs: Ship = m.spawn_ship(CL, 1, Vector2(3000.0, 600.0))
+	var yard0: int = m.yards.find(m.bases[0].shipyard)
+	var yard1: int = m.yards.find(m.bases[1].shipyard)
+	check(mine.net_id > 0 and theirs.net_id != mine.net_id and m.ships_by_id[mine.net_id] == mine,
+		"every ship has its own id")
+	for who: Combatant in [mine, m.bases[1], m.bases[2]]:
+		check(m.combatant_from_ref(m.combatant_ref(who)) == who, "combatant refs round-trip")
+	check(m.combatant_ref(null) == 0 and m.combatant_from_ref(0) == null and m.combatant_from_ref(999999) == null,
+		"unknown refs name nothing")
+	# Valid commands of the side's own.
+	check(m.execute_command(0, {"type": "move", "ships": [mine.net_id], "x": 1400.0, "y": 1500.0}) == ""
+		and mine.has_destination(), "a side moves its own ships")
+	m.execute_command(0, {"type": "stop", "ships": [mine.net_id]})
+	check(not mine.has_destination(), "and stops them")
+	check(m.execute_command(0, {"type": "build", "yard": yard0, "cls": int(DD)}) == ""
+		and m.bases[0].shipyard.queue.size() == 1, "a side builds at its own yard")
+	m.execute_command(0, {"type": "cancel", "yard": yard0})
+	check(m.bases[0].shipyard.queue.is_empty(), "and cancels the order")
+	m.execute_command(0, {"type": "rally", "yard": yard0, "x": 900.0, "y": 1400.0})
+	check(m.bases[0].shipyard.rally_point.distance_to(Vector2(900.0, 1400.0)) < 60.0, "and moves its rally point")
+	check(m.execute_command(0, {"type": "build", "yard": yard0, "cls": int(BB)}) != "",
+		"a refused order comes back as a notice for the player")
+	# Forged commands: other sides' ships and yards are out of reach.
+	m.execute_command(0, {"type": "move", "ships": [theirs.net_id], "x": 100.0, "y": 100.0})
+	check(not theirs.has_destination(), "a side cannot move another side's ships")
+	m.execute_command(0, {"type": "build", "yard": yard1, "cls": int(DD)})
+	m.execute_command(0, {"type": "upgrade", "yard": yard1})
+	check(m.bases[1].shipyard.queue.is_empty(), "nor build at another side's yard")
+	var rally1: Vector2 = m.bases[1].shipyard.rally_point
+	m.execute_command(0, {"type": "rally", "yard": yard1, "x": 100.0, "y": 100.0})
+	check(m.bases[1].shipyard.rally_point == rally1, "nor move its rally point")
+	# An enemy the side cannot see cannot be ordered attacked.
+	m.execute_command(0, {"type": "attack", "ships": [mine.net_id], "target": theirs.net_id})
+	check(mine.priority_target == null, "an unseen enemy cannot be targeted")
+	# Malformed commands do nothing (and do not crash).
+	var bad: Array[Dictionary] = [{}, {"type": 5}, {"type": "launch"}, {"type": "move"},
+		{"type": "move", "ships": "all", "x": 1.0, "y": 2.0},
+		{"type": "move", "ships": [mine.net_id], "x": NAN, "y": 0.0},
+		{"type": "move", "ships": [mine.net_id], "x": "1", "y": 0.0},
+		{"type": "build", "yard": 999, "cls": 0}, {"type": "build", "yard": -1, "cls": 0},
+		{"type": "build", "yard": yard0, "cls": 99}, {"type": "build", "yard": "0", "cls": 0},
+		{"type": "attack", "ships": [mine.net_id], "target": "base"},
+		{"type": "attack", "ships": [mine.net_id], "target": -1}]
+	for cmd: Dictionary in bad:
+		check(m.execute_command(0, cmd) == "", "malformed command %s is ignored" % str(cmd))
+	check(not mine.has_destination() and mine.priority_target == null and m.bases[0].shipyard.queue.is_empty(),
+		"malformed commands change nothing")
+	var many: Array[int] = []
+	for i: int in Match.MAX_COMMAND_SHIPS + 1:
+		many.append(mine.net_id)
+	m.execute_command(0, {"type": "move", "ships": many, "x": 1400.0, "y": 1500.0})
+	check(not mine.has_destination(), "an oversized ship list is refused")
+	check(m.execute_command(-1, {"type": "stop", "ships": [mine.net_id]}) == ""
+		and m.execute_command(7, {"type": "stop", "ships": [mine.net_id]}) == "", "unknown sides are refused")
+	# A spotted enemy can be attacked, and class rules still apply (a Submarine cannot hit a base).
+	var scout: Ship = spotter(m, 0, Vector2(3000.0, 900.0))
+	await seconds(1.0)
+	m.execute_command(0, {"type": "attack", "ships": [mine.net_id], "target": theirs.net_id})
+	check(mine.priority_target == theirs, "a spotted enemy can be ordered attacked")
+	check(m.execute_command(0, {"type": "attack", "ships": [scout.net_id], "target": m.combatant_ref(m.bases[1])})
+		in ["Submarines cannot attack the Home Base", ""], "order rules are those of the ships themselves")
+	# The local player's commands go through the same door.
+	check(m.command({"type": "move", "ships": [mine.net_id], "x": 1300.0, "y": 1500.0}) == "" and mine.has_destination(),
+		"Match.command runs the local side's orders")
+	# Knocked-out sides give no more orders.
+	var lost: Ship = m.spawn_ship(CL, 2, Vector2(2000.0, 500.0))
+	m.bases[2].kill()
+	await frames(3)
+	check(m.execute_command(2, {"type": "build", "yard": m.yards.find(m.bases[2].shipyard), "cls": int(DD)}) == ""
+		and m.bases[2].shipyard.queue.is_empty() and not lost.is_alive(), "an eliminated side is ignored")
+
+
+func test_29_a_replica_mirrors_the_host_exactly() -> void:
+	var host: Match = (load(MAIN_SCENE) as PackedScene).instantiate() as Match
+	host.map_seed = 5
+	host.team_control = [Match.ControlType.AI, Match.ControlType.AI, Match.ControlType.AI]
+	host.create_ui = false
+	host.record_effects = true
+	add_child(host)
+	_match = host
+	await seconds(150.0)
+	check(host.ships.size() > 4 and host.projectile_count() > 0, "the host has a battle going (%d ships, %d projectiles)" % [
+		host.ships.size(), host.projectile_count()])
+	# The replica lives in its own 2D world so the two matches cannot collide.
+	var view: SubViewport = SubViewport.new()
+	add_child(view)
+	var rep: Match = (load(MAIN_SCENE) as PackedScene).instantiate() as Match
+	rep.map_seed = 5
+	rep.team_control = [NONE, NONE, NONE]
+	rep.replica = true
+	rep.create_ui = false
+	view.add_child(rep)
+	await frames(2)
+	check(rep.islands.size() == host.islands.size() and rep.yards.size() == host.yards.size(),
+		"the same seed builds the same map on the client")
+	var snap: Dictionary = NetSync.build(host)
+	NetSync.apply(rep, snap)
+	var diff: Array[String] = NetSync.differences(snap, NetSync.build(rep))
+	check(diff.is_empty(), "after one snapshot the replica holds exactly the host's state (differs: %s)" % str(diff))
+	check(rep.ships.size() == host.ships_by_id.size() and rep.net_projectiles.size() > 0, "ships and projectiles are mirrored")
+	var bytes: int = var_to_bytes(snap).size()
+	print("    snapshot: %d bytes, %d ships, %d projectiles" % [bytes, rep.ships.size(), rep.net_projectiles.size()])
+	check(bytes < 60000, "a snapshot stays small enough for LAN (%d bytes)" % bytes)
+	await seconds(5.0)
+	diff = NetSync.differences(snap, NetSync.build(rep))
+	check(diff.is_empty(), "left alone, the replica changes nothing by itself (differs: %s)" % str(diff))
+	var worst: Array[String] = []
+	for i: int in 300:
+		await frames(4)
+		snap = NetSync.build(host)
+		NetSync.apply(rep, snap)
+		diff = NetSync.differences(snap, NetSync.build(rep))
+		if not diff.is_empty() and worst.is_empty():
+			worst = diff
+	check(worst.is_empty(), "the replica follows the host through 20 s of battle (differs: %s)" % str(worst))
+	var sunk: int = 0
+	for ship: Ship in rep.ships:
+		if not host.ships_by_id.has(ship.net_id):
+			sunk += 1
+	check(sunk == 0, "ships sunk on the host are gone on the replica")
+	# Knock-outs and the end of the match reach the client as well.
+	var out: Array[int] = []
+	var ended: Array[int] = []
+	rep.team_eliminated.connect(func(team: int) -> void: out.append(team))
+	rep.match_ended.connect(func(team: int) -> void: ended.append(team))
+	host.bases[2].kill()
+	await frames(3)
+	NetSync.apply(rep, NetSync.build(host))
+	check(rep.eliminated[2] and out == [2] and not rep.bases[2].is_alive() and not rep.is_over,
+		"a side knocked out on the host is knocked out on the replica")
+	check(rep.ships_of(2, false).is_empty() and rep.yards_of(2).is_empty(), "its fleet and yards are gone there too")
+	host.bases[1].kill()
+	await frames(3)
+	NetSync.apply(rep, NetSync.build(host))
+	check(rep.is_over and rep.winner == host.winner and ended == [host.winner], "the replica sees the match end with the same winner")
+	var sent: Array[Dictionary] = []
+	rep.command_sink = func(cmd: Dictionary) -> void: sent.append(cmd)
+	rep.command({"type": "stop", "ships": []})
+	check(sent.size() == 1 and rep.execute_command(0, {"type": "stop", "ships": []}) == "",
+		"a replica sends its commands away instead of running them")
+	view.queue_free()
+
+
+func test_30_menu_opponent_count_adds_ai_fleets() -> void:
+	var shown: bool = GameSettings.menu_shown
+	var opponents: int = GameSettings.ai_opponents
+	GameSettings.menu_shown = true
+	GameSettings.ai_opponents = 3
+	var m: Match = (load(MAIN_SCENE) as PackedScene).instantiate() as Match
+	m.map_seed = 2
+	m.create_ui = false
+	add_child(m)
+	_match = m
+	await frames(3)
+	GameSettings.menu_shown = shown
+	GameSettings.ai_opponents = opponents
+	check(m.team_count == 4 and m.bases.size() == 4 and m.local_team == 0, "three AI opponents make a four-fleet match")
+	check(m.ai_controllers.size() == 3 and m.are_enemies(1, 2) and m.are_enemies(0, 3),
+		"each AI fleet fights everybody else")
+
+
+func test_32_super_battleship_flak() -> void:
+	var m: Match = await start(open_map(Vector2(3000.0, 2400.0)))
+	var sbb: Ship = m.spawn_ship(SBB, 0, Vector2(1500.0, 1200.0))
+	sbb.max_hp = 1000000.0
+	sbb.hp = sbb.max_hp
+	var cv: Ship = m.spawn_ship(CV, 1, Vector2(1500.0, 1700.0))
+	m.spawn_ship(DD, 1, Vector2(1500.0, 1600.0))
+	await seconds(90.0)
+	check(cv.squadrons_launched >= 3, "the carrier sends squadrons at the super battleship (%d)" % cv.squadrons_launched)
+	check(sbb.flak_barrages >= 2, "the super battleship fires flak barrages (%d)" % sbb.flak_barrages)
+	check(sbb.flak_kills >= 1 and cv.squadrons_lost >= sbb.flak_kills, "flak brings squadrons down (%d)" % sbb.flak_kills)
+	check(float(sbb.flak_barrages) <= 90.0 / GameData.ship(SBB).periodic_aa_interval + 1.0,
+		"barrages are at least %.0fs apart" % GameData.ship(SBB).periodic_aa_interval)
+
+
+func test_33_swell_rocks_ships_without_carrying_them_off() -> void:
+	var m: Match = await start(open_map(Vector2(3000.0, 2400.0)))
+	var dd: Ship = m.spawn_ship(DD, 0, Vector2(1500.0, 1200.0))
+	var bb: Ship = m.spawn_ship(BB, 0, Vector2(1500.0, 900.0))
+	var dd_start: Vector2 = dd.position
+	var bb_start: Vector2 = bb.position
+	var dd_most: float = 0.0
+	var bb_most: float = 0.0
+	for i: int in 120:
+		await seconds(0.5)
+		dd_most = maxf(dd_most, dd.position.distance_to(dd_start))
+		bb_most = maxf(bb_most, bb.position.distance_to(bb_start))
+	check(dd_most > 2.0, "an idle destroyer is moved by the waves (%.1f px)" % dd_most)
+	check(dd_most < 20.0 and bb_most < 20.0, "the swell never carries a ship away (%.1f / %.1f px)" % [dd_most, bb_most])
+	check(bb_most < dd_most, "big hulls are rocked less than small ones (%.1f < %.1f)" % [bb_most, dd_most])
+
+
+func test_31_battleship_secondaries() -> void:
+	var bb_stats: ShipStats = GameData.ship(BB)
+	var dd_stats: ShipStats = GameData.ship(DD)
+	check(bb_stats.secondary_mounts == 4 and is_equal_approx(bb_stats.secondary_shell_damage, dd_stats.shell_damage),
+		"battleships carry four destroyer-calibre secondary guns")
+	check(is_equal_approx(bb_stats.secondary_interval, dd_stats.fire_interval * 2.0),
+		"secondaries fire at half a destroyer gun's rate")
+	check(is_equal_approx(bb_stats.secondary_range, bb_stats.gun_range * 0.5), "secondary range is half the main-gun range")
+	for cls: ShipStats.ShipClass in [DD, SS, CL, CA, CV]:
+		check(not GameData.ship(cls).has_secondaries(), "%s has no secondaries" % GameData.ship(cls).code)
+	var m: Match = await start(open_map(Vector2(6400.0, 2400.0)))
+	# A hull abeam inside secondary range: main turrets and secondaries both fire.
+	var bb: Ship = m.spawn_ship(BB, 0, Vector2(1000.0, 1200.0))
+	var near: Ship = hull(m, DD, 1, Vector2(1000.0, 1500.0))
+	near.max_hp = 1000000.0
+	near.hp = near.max_hp
+	spotter(m, 0, Vector2(900.0, 1300.0))
+	# A hull past secondary range but inside main-gun range: only the main battery fires.
+	var bb2: Ship = m.spawn_ship(BB, 0, Vector2(3000.0, 1200.0))
+	var far: Ship = hull(m, DD, 1, Vector2(3000.0, 1900.0))
+	far.max_hp = 1000000.0
+	far.hp = far.max_hp
+	spotter(m, 0, Vector2(3000.0, 1300.0), 900.0)
+	# A spotted submarine close aboard: battleship secondaries leave it alone too.
+	var bb3: Ship = m.spawn_ship(BB, 0, Vector2(4700.0, 1200.0))
+	var boat: Ship = hull(m, SS, 1, Vector2(4700.0, 1400.0))
+	m.spawn_ship(DD, 0, Vector2(4900.0, 1000.0))
+	await seconds(3.0)
+	check(boat.spotted_by[0], "the submarine is spotted")
+	check(bb.secondary_salvos >= 1 and bb.salvos_fired >= 1, "secondaries and main guns both engage a close target (%d / %d)" % [
+		bb.secondary_salvos, bb.salvos_fired])
+	check(bb2.salvos_fired >= 1 and bb2.secondary_salvos == 0, "a target past secondary range draws only main-gun fire (%d / %d)" % [
+		bb2.secondary_salvos, bb2.salvos_fired])
+	check(bb3.secondary_salvos == 0 and bb3.salvos_fired == 0, "battleship secondaries never fire at submarines")
+	var before: int = bb.secondary_salvos
+	await seconds(bb_stats.secondary_interval * 2.0)
+	check(bb.secondary_salvos - before == 2, "secondaries reload every %.0fs (%d salvos in %.0fs)" % [
+		bb_stats.secondary_interval, bb.secondary_salvos - before, bb_stats.secondary_interval * 2.0])
+	check(bb.range_rings().has(Vector2(bb_stats.secondary_range, 3.0)), "a battleship shows a secondary range ring")
+
+
 func test_25_ai_difficulty_levels() -> void:
 	check(GameSettings.difficulty_from_name("easy") == GameSettings.Difficulty.EASY
 		and GameSettings.difficulty_from_name("Medium") == GameSettings.Difficulty.MEDIUM
@@ -1632,3 +2105,492 @@ func test_25_ai_difficulty_levels() -> void:
 			else:
 				check(max_in_frame[ai.team] >= 6, "Hard AI orders its whole fleet at once (%d in one think)" % max_in_frame[ai.team])
 		await _cleanup()
+
+
+# --- Air wing roles, island defenses, support ships --------------------------
+
+func _squadrons_with_role(m: Match, role: PlaneSquadron.Role) -> Array[PlaneSquadron]:
+	var result: Array[PlaneSquadron] = []
+	for squadron: PlaneSquadron in squadrons_of(m):
+		if squadron.role == role:
+			result.append(squadron)
+	return result
+
+
+func test_12d_torpedo_bombers_hit_capital_ships_broadside() -> void:
+	var m: Match = await start(open_map())
+	# A Light Carrier sends one torpedo flight at a time.
+	var cv: Ship = m.spawn_ship(LCV, 0, Vector2(1100.0, 1200.0))
+	# A heavy cruiser alone: too small for torpedo bombers.
+	var cruiser: Ship = hull(m, CA, 1, Vector2(1900.0, 900.0))
+	cruiser.max_hp = 100000.0
+	cruiser.hp = 100000.0
+	spotter(m, 0, Vector2(1900.0, 1300.0))
+	await seconds(3.0)
+	check(cruiser.spotted_by[0], "the cruiser is spotted")
+	check(_squadrons_with_role(m, PlaneSquadron.Role.TORPEDO).is_empty(), "no torpedo bombers go after a cruiser")
+	check(not Ship.torpedo_bomber_can_target(cruiser), "a cruiser is not a torpedo-bomber target")
+	# A battleship (a hull on the slip, heading east): torpedo bombers launch for it.
+	var bb: Ship = hull(m, BB, 1, Vector2(1900.0, 1500.0))
+	bb.max_hp = 100000.0
+	bb.hp = 100000.0
+	var waited: int = 0
+	while _squadrons_with_role(m, PlaneSquadron.Role.TORPEDO).is_empty() and waited < 600:
+		await frames(1)
+		waited += 1
+	var flight: Array[PlaneSquadron] = _squadrons_with_role(m, PlaneSquadron.Role.TORPEDO)
+	check(flight.size() == 1 and flight[0].mission_target == bb, "a torpedo bomber flight is sent at the battleship")
+	if flight.is_empty():
+		return
+	var bomber: PlaneSquadron = flight[0]
+	waited = 0
+	while is_instance_valid(bomber) and not bomber.payload_dropped and waited < 900:
+		await frames(1)
+		waited += 1
+	check(is_instance_valid(bomber) and bomber.payload_dropped, "the bombers reach the battleship and drop")
+	var torpedoes: Array[Torpedo] = []
+	for node: Node in m.projectiles():
+		if node is Torpedo and not node.is_queued_for_deletion():
+			torpedoes.append(node as Torpedo)
+	check(torpedoes.size() == 2, "two torpedoes are dropped (got %d)" % torpedoes.size())
+	if torpedoes.size() == 2:
+		check(absf(angle_difference(torpedoes[0].rotation, torpedoes[1].rotation)) < 0.01, "they run side by side")
+		var across: float = absf(angle_difference(torpedoes[0].rotation, bb.rotation))
+		check(absf(across - PI * 0.5) < 0.05, "aimed straight across the battleship's beam")
+		var off: float = absf((torpedoes[0].position - bb.position).dot(Vector2.from_angle(bb.rotation).orthogonal()))
+		check(off > 60.0 and off < 120.0, "dropped just off its broadside (%.0f px)" % off)
+		check(torpedoes[0].position.distance_to(torpedoes[1].position) > 8.0, "a little apart")
+	await seconds(1.5)
+	check_near(100000.0 - bb.hp, 2.0 * GameData.torpedo_damage() * (1.0 - bb.effective_armor()),
+		"both torpedoes hit for torpedo damage (less armor)", 0.5)
+	waited = 0
+	while is_instance_valid(bomber) and not bomber.is_queued_for_deletion() and waited < 900:
+		await frames(1)
+		waited += 1
+	check(not is_instance_valid(bomber) or bomber.is_queued_for_deletion(), "the flight flies home and lands")
+	check(cv.squadrons_lost == 0, "landing is not a loss")
+
+
+func test_12e_depth_charge_bombers_hunt_submarines() -> void:
+	var m: Match = await start(open_map())
+	var cv: Ship = m.spawn_ship(CV, 0, Vector2(1000.0, 1200.0))
+	# Dive bombers off, so only depth charges hit the boat.
+	cv.stats = cv.stats.duplicate() as ShipStats
+	cv.stats.max_squadrons = 0
+	var boat: Ship = m.spawn_ship(SS, 1, Vector2(1700.0, 1200.0))
+	boat.max_hp = 100000.0
+	boat.hp = 100000.0
+	await seconds(1.0)
+	check(not boat.spotted_by[0], "a submerged boat is not seen")
+	check(_squadrons_with_role(m, PlaneSquadron.Role.DEPTH).is_empty(), "no depth-charge bombers for an unseen boat")
+	boat.reveal_timer = 30.0
+	await seconds(0.5)
+	check(boat.spotted_by[0], "the boat is revealed")
+	var flights: Array[PlaneSquadron] = _squadrons_with_role(m, PlaneSquadron.Role.DEPTH)
+	check(flights.size() == 1 and flights[0].mission_target == boat, "a depth-charge bomber flight goes after it")
+	await seconds(2.1)
+	check(cv.squadrons_launched >= 2 and _squadrons_with_role(m, PlaneSquadron.Role.DEPTH).size() == 2,
+		"another follows 2s later")
+	var waited: int = 0
+	while boat.hp >= 100000.0 and waited < 900:
+		await frames(1)
+		waited += 1
+	check(boat.hp < 100000.0 and fmod(100000.0 - boat.hp, GameData.ship(DD).depth_charge_damage) < 0.5,
+		"depth charges hit the boat for full damage, ignoring armor (%.0f)" % (100000.0 - boat.hp))
+	var most: int = 0
+	for i: int in 20:
+		await seconds(1.0)
+		most = maxi(most, _squadrons_with_role(m, PlaneSquadron.Role.DEPTH).size())
+	check(most <= cv.stats.max_depth_bombers, "no more than %d depth-charge flights in the air (%d)" % [
+		cv.stats.max_depth_bombers, most])
+	check(_squadrons_with_role(m, PlaneSquadron.Role.TORPEDO).is_empty(), "torpedo bombers never go after a submarine")
+
+
+func test_15c_major_island_air_base_and_radar() -> void:
+	var map: MapData = open_map()
+	add_island(map, MapData.KIND_MAJOR, Vector2(2400.0, 1200.0), 130.0)
+	var m: Match = await start(map)
+	var b: GameBalance = GameData.balance()
+	var island: Island = m.islands[0]
+	var fort: IslandGarrison = island.garrison
+	island.set_owner_team(1)
+	m.economy.set_bank(1, 50000, 50000)
+	check(not island.has_air_base(), "no air base before a Tier 3 shipyard")
+	check(island.try_buy_radar(1).contains("Tier 3"), "radar needs a Tier 3 shipyard")
+	check_near(island.spotting_range(), b.island_spotting, "plain island spotting")
+	island.shipyard.tier = 3
+	check(island.has_air_base(), "a Tier 3 Major island runs an air base")
+	check(island.try_buy_radar(0) != "", "only the owner can buy radar")
+	var gold: int = m.economy.gold[1]
+	check(island.try_buy_radar(1) == "" and island.has_radar, "radar bought")
+	check(gold - m.economy.gold[1] == b.radar_gold_cost, "radar is paid for")
+	check_near(island.spotting_range(), GameData.ship(DD).spotting_range, "radar gives the island a destroyer's spotting", 1.0)
+	check(island.try_buy_radar(1) != "", "radar is bought once")
+	# A ship that does not fire on the island is left alone.
+	var passer: Ship = m.spawn_ship(RD, 0, island.position + Vector2(-500.0, 300.0))
+	await seconds(4.0)
+	check(passer.spotted_by[1], "the island sees the passer-by")
+	check(fort.airborne_squadrons() == 0, "no bombers for a ship that is not attacking")
+	# A destroyer (no anti-air) shelling the island draws the bombers.
+	var cl: Ship = m.spawn_ship(DD, 0, island.position + Vector2(-650.0, 0.0))
+	cl.max_hp = 100000.0
+	cl.hp = 100000.0
+	cl.order_attack(fort)
+	var waited: int = 0
+	while fort.squadrons_launched == 0 and waited < 900:
+		await frames(1)
+		waited += 1
+	check(fort.squadrons_launched == 1 and fort.air_target() == cl, "the air base launches at the ship firing on it")
+	await seconds(b.air_base_interval * 2.0 + 6.0)
+	check(fort.squadrons_launched == b.air_base_squadrons and fort.airborne_squadrons() == b.air_base_squadrons,
+		"up to %d squadrons, one every %ds (launched %d)" % [b.air_base_squadrons, int(b.air_base_interval), fort.squadrons_launched])
+	await seconds(b.air_base_interval + 1.0)
+	check(fort.squadrons_launched == b.air_base_squadrons, "and no more while they are all up")
+	check(cl.hp < 100000.0, "the bombers hit the cruiser")
+	check_near(passer.hp, passer.max_hp, "the passer-by is still left alone")
+	# The island falls: radar and the air wing are lost.
+	fort.kill()
+	await frames(3)
+	check(not island.has_radar and not island.has_air_base(), "radar and air base are lost with the island")
+	check(count_projectiles(m, "PlaneSquadron") == 0, "the base's squadrons are lost with it")
+
+
+func test_16c_resource_ship_mines_islands() -> void:
+	var map: MapData = open_map()
+	add_island(map, MapData.KIND_COVER, Vector2(1500.0, 800.0), 100.0)
+	add_island(map, MapData.KIND_MINOR, Vector2(2200.0, 1600.0), 80.0)
+	var m: Match = await start(map)
+	var b: GameBalance = GameData.balance()
+	var base_income: Vector2i = m.economy.income_for(0)
+	var miner: Ship = m.spawn_ship(RS, 0, Vector2(1500.0, 800.0 + 100.0 + 90.0))
+	var second: Ship = m.spawn_ship(RS, 0, Vector2(1500.0, 800.0 - 100.0 - 90.0))
+	var far: Ship = m.spawn_ship(RS, 0, Vector2(1000.0, 2000.0))
+	await seconds(0.5)
+	check(miner.mining_island() == m.islands[0] and second.mining_island() == m.islands[0], "both ships are mining the cover island")
+	check(far.mining_island() == null, "a ship away from any island mines nothing")
+	check(m.economy.income_for(0) - base_income == Vector2i(b.minor_gold, b.minor_steel),
+		"one island pays a Minor island's income, however many ships mine it")
+	second.order_move(Vector2(2200.0, 1600.0 + 80.0 + 100.0))
+	await seconds(1.0)
+	check(second.mining_island() == null, "a ship under way does not mine")
+	var waited: int = 0
+	while (second.has_destination() or second.mining_island() != m.islands[1]) and waited < 3600:
+		await frames(1)
+		waited += 1
+	check(second.mining_island() == m.islands[1], "it mines the next island once it stops there")
+	check(m.economy.income_for(0) - base_income == Vector2i(b.minor_gold, b.minor_steel) * 2, "two islands pay twice")
+	check(m.islands[1].owner_team == -1 and m.islands[1].capture_progress <= 0.0, "Resource Ships never capture islands")
+	var bank: int = m.economy.gold[0]
+	var expected: int = m.economy.income_for(0).x
+	m.economy.pay_tick()
+	check(m.economy.gold[0] - bank == expected, "mined income is paid on the supply tick")
+	miner.kill()
+	await frames(2)
+	check(m.economy.income_for(0) - base_income == Vector2i(b.minor_gold, b.minor_steel), "a sunk miner earns nothing (%s, %s, %s)" % [
+		m.economy.income_for(0) - base_income, second.mining_island(), second.velocity.length()])
+	check(not far.stats.has_guns() and far.stats.is_support(), "Resource Ships are unarmed")
+
+
+func test_16d_radar_ship_spots_far_but_not_submarines() -> void:
+	var m: Match = await start(open_map())
+	var picket: Ship = m.spawn_ship(RD, 0, Vector2(1000.0, 1200.0))
+	var far: Ship = hull(m, BB, 1, Vector2(2000.0, 1200.0))
+	var boat: Ship = m.spawn_ship(SS, 1, Vector2(1200.0, 1200.0))
+	await seconds(1.0)
+	check(far.position.distance_to(picket.position) > GameData.ship(DD).spotting_range, "the target is beyond destroyer spotting")
+	check(far.spotted_by[0], "a Radar Ship spots it anyway")
+	check(not boat.spotted_by[0], "but not a submerged submarine")
+	check(not picket.order_attack(far), "it has no weapons to attack with")
+	await seconds(2.0)
+	check(picket.salvos_fired == 0 and is_equal_approx(far.hp, far.max_hp * GameData.balance().construction_start_hp_fraction),
+		"and deals no damage")
+
+
+func test_16e_cruiser_and_capital_ship_speeds() -> void:
+	var dd: float = GameData.ship_speed(GameData.ship(DD))
+	check_near(GameData.ship(CA).speed_factor, 0.5 * 1.5 * 0.85, "CA 1.5x, then -15%")
+	check_near(GameData.ship(BC).speed_factor, 0.36 * 1.5 * 0.95, "BC 1.5x, then -5%")
+	check_near(GameData.ship(BB).speed_factor, 0.3 * 1.5 * 0.95, "BB 1.5x, then -5%")
+	check_near(GameData.ship(SBB).speed_factor, 0.27 * 1.5 * 0.95, "SBB 1.5x, then -5%")
+	check_near(GameData.ship(CV).speed_factor, 0.9, "CV unchanged")
+	check_near(GameData.ship(DD).speed_factor, 1.0, "DD unchanged")
+	check_near(GameData.ship(SS).speed_factor, 0.5, "SS unchanged")
+	check(GameData.ship_speed(GameData.ship(SBB)) < dd, "nothing outruns a destroyer")
+	await get_tree().process_frame
+
+
+# --- Heavy Carrier stacking, broadside turns ---------------------------------
+
+func test_12f_heavy_carrier_stacks_five_per_target_and_retargets() -> void:
+	dive_bombers_only(true)
+	await _heavy_carrier_stacking()
+	dive_bombers_only(false)
+
+
+func _heavy_carrier_stacking() -> void:
+	var m: Match = await start(open_map())
+	var cv: Ship = m.spawn_ship(CV, 0, Vector2(1000.0, 1200.0))
+	var near: Ship = hull(m, BB, 1, Vector2(1600.0, 1200.0))
+	var mid: Ship = hull(m, BB, 1, Vector2(1800.0, 1500.0))
+	var spare: Ship = hull(m, BB, 1, Vector2(1900.0, 900.0))
+	for ship: Ship in [near, mid, spare]:
+		ship.max_hp = 1000000.0
+		ship.hp = 1000000.0
+	spotter(m, 0, Vector2(1700.0, 1200.0))
+	var waited: int = 0
+	while cv.squadrons_launched < 10 and waited < 60 * 60:
+		await frames(1)
+		waited += 1
+	check(cv.squadrons_launched == 10 and cv.airborne_squadrons() == 10, "a Heavy Carrier keeps more than 5 squadrons up (%d)" % cv.airborne_squadrons())
+	check(cv.squadrons_on(near) == 5, "the first five stack on the nearest ship (%d)" % cv.squadrons_on(near))
+	check(cv.squadrons_on(mid) + cv.squadrons_on(spare) == 5, "the next five go to another ship")
+	var second: Ship = mid if cv.squadrons_on(mid) == 5 else spare
+	var third: Ship = spare if second == mid else mid
+	check(cv.squadrons_on(second) == 5 and cv.squadrons_on(third) == 0, "never more than 5 on one ship")
+	await seconds(4.0)
+	check(near.hp < near.max_hp and second.hp < second.max_hp, "both targets are bombed at once")
+	# The first target sinks: its squadrons move straight on to the ship with room in its stack.
+	near.kill()
+	await frames(2)
+	check(cv.squadrons_on(third) == 5, "squadrons of a sunk target retarget at once (%d on the free ship)" % cv.squadrons_on(third))
+	check(cv.squadrons_on(second) == 5, "the full stack stays at 5")
+	check(cv.airborne_squadrons() >= 10, "nobody flies home")
+	# With nothing in reach, a sunk target's squadrons fly home.
+	await seconds(1.0)
+	var hp_third: float = third.hp
+	await seconds(4.0)
+	check(third.hp < hp_third, "the retargeted squadrons bomb their new target")
+	third.kill()
+	second.kill()
+	await seconds(20.0)
+	check(cv.airborne_squadrons() == 0, "with no target left in reach every squadron lands (%d up)" % cv.airborne_squadrons())
+
+
+func test_12g_light_carrier_counts_every_role_toward_five() -> void:
+	var m: Match = await start(open_map())
+	var cv: Ship = m.spawn_ship(LCV, 0, Vector2(1000.0, 1200.0))
+	var bb: Ship = hull(m, BB, 1, Vector2(1600.0, 1200.0))
+	bb.max_hp = 1000000.0
+	bb.hp = 1000000.0
+	var boat: Ship = m.spawn_ship(SS, 1, Vector2(1500.0, 1500.0))
+	boat.max_hp = 1000000.0
+	boat.hp = 1000000.0
+	boat.reveal_timer = 1000.0
+	spotter(m, 0, Vector2(1400.0, 1300.0))
+	var most: int = 0
+	var roles: Dictionary[int, bool] = {}
+	for i: int in 40:
+		await seconds(1.0)
+		most = maxi(most, cv.airborne_squadrons())
+		for squadron: PlaneSquadron in squadrons_of(m):
+			roles[int(squadron.role)] = true
+	check(most == 5, "a Light Carrier never has more than 5 squadrons up, all roles together (%d)" % most)
+	check(roles.size() == 3, "it flies dive, torpedo and depth-charge bombers")
+	check(cv.squadrons_lost == 0, "no losses against hulls without anti-air")
+	boat.reveal_timer = 0.0
+
+
+func test_12h_heavy_carrier_torpedo_flights_split_over_three_targets() -> void:
+	var m: Match = await start(open_map())
+	var cv: Ship = m.spawn_ship(CV, 0, Vector2(1000.0, 1200.0))
+	cv.stats = cv.stats.duplicate() as ShipStats
+	cv.stats.max_squadrons = 0
+	cv.stats.depth_bomber_interval = 0.0
+	var a: Ship = hull(m, BB, 1, Vector2(1700.0, 1200.0))
+	var b: Ship = hull(m, BC, 1, Vector2(1800.0, 1500.0))
+	var c: Ship = hull(m, SBB, 1, Vector2(1800.0, 900.0))
+	for ship: Ship in [a, b, c]:
+		ship.max_hp = 1000000.0
+		ship.hp = 1000000.0
+	spotter(m, 0, Vector2(1700.0, 1200.0), 900.0)
+	var waited: int = 0
+	while _squadrons_with_role(m, PlaneSquadron.Role.TORPEDO).is_empty() and waited < 600:
+		await frames(1)
+		waited += 1
+	var flights: Array[PlaneSquadron] = _squadrons_with_role(m, PlaneSquadron.Role.TORPEDO)
+	check(flights.size() == 3, "one launch sends three torpedo flights (%d)" % flights.size())
+	check(cv.missions_on(a, PlaneSquadron.Role.TORPEDO) == 1 and cv.missions_on(b, PlaneSquadron.Role.TORPEDO) == 1
+		and cv.missions_on(c, PlaneSquadron.Role.TORPEDO) == 1, "one flight at each of three targets")
+	# Only one target: all three go at it, and never more than three at once.
+	b.kill()
+	c.kill()
+	var most: int = 0
+	for i: int in 30:
+		await seconds(1.0)
+		most = maxi(most, cv.missions_on(a, PlaneSquadron.Role.TORPEDO))
+	check(most == 3, "a lone target draws up to three flights, no more (%d)" % most)
+	check(a.hp < a.max_hp, "the flights hit it")
+	# A Light Carrier never sends more than one.
+	var light: Ship = m.spawn_ship(LCV, 0, Vector2(1100.0, 1500.0))
+	var light_most: int = 0
+	for i: int in 25:
+		await seconds(1.0)
+		light_most = maxi(light_most, light.airborne_of(PlaneSquadron.Role.TORPEDO))
+	check(light_most == 1, "a Light Carrier flies one torpedo flight at a time (%d)" % light_most)
+
+
+func test_12i_heavy_carrier_bombs_hit_ten_percent_harder() -> void:
+	var m: Match = await start(open_map())
+	var heavy: Ship = m.spawn_ship(CV, 0, Vector2(1000.0, 1200.0))
+	var light: Ship = m.spawn_ship(LCV, 0, Vector2(1000.0, 1300.0))
+	var a: PlaneSquadron = m.spawn_squadron(heavy, heavy.position, 0.0)
+	var b: PlaneSquadron = m.spawn_squadron(light, light.position, 0.0)
+	check_near(a.damage, GameData.bomb_damage() * 1.1, "Heavy Carrier bomb: %.0f" % a.damage, 0.01)
+	check_near(b.damage, GameData.bomb_damage(), "Light Carrier bomb: standard", 0.01)
+	var torp: PlaneSquadron = m.spawn_squadron(heavy, heavy.position, 0.0, PlaneSquadron.Role.TORPEDO)
+	check_near(torp.damage, GameData.bomb_damage(), "only dive bombs get the bonus", 0.01)
+
+
+func test_16f_player_attack_orders_turn_gun_ships_broadside() -> void:
+	var m: Match = await start(open_map())
+	var bb: Ship = m.spawn_ship(BB, 0, Vector2(1000.0, 1200.0), 0.0)
+	var cl: Ship = m.spawn_ship(CL, 0, Vector2(1000.0, 1600.0), 0.0)
+	var dd: Ship = m.spawn_ship(DD, 0, Vector2(1000.0, 800.0), 0.0)
+	var ai_bb: Ship = m.spawn_ship(BB, 0, Vector2(1000.0, 2000.0), 0.0)
+	var target: Ship = hull(m, BB, 1, Vector2(1700.0, 1200.0))
+	target.max_hp = 1000000.0
+	target.hp = 1000000.0
+	spotter(m, 0, Vector2(1400.0, 1400.0), 900.0)
+	await seconds(0.5)
+	check(target.spotted_by[0], "the target is spotted")
+	# Ships start bow-on to the target; a player order swings their beams toward it.
+	var group: Array[int] = []
+	for ship: Ship in [bb, cl, dd]:
+		group.append(ship.net_id)
+	m.execute_command(0, {"type": "attack", "ships": group, "target": m.combatant_ref(target)})
+	ai_bb.order_attack(target)
+	check(bb.broadside_order and cl.broadside_order and dd.broadside_order, "player attack orders ask for a broadside")
+	check(not ai_bb.broadside_order, "orders given in code (the AI) do not")
+	await seconds(25.0)
+	for ship: Ship in [bb, cl, dd]:
+		var bearing: float = (target.position - ship.position).angle()
+		var off_beam: float = absf(absf(angle_difference(ship.rotation, bearing)) - PI * 0.5)
+		check(off_beam < deg_to_rad(Ship.BROADSIDE_START_DEG),
+			"%s lies broadside to its target (%.0f deg off the beam)" % [ship.stats.code, rad_to_deg(off_beam)])
+		check(ship.range_to(target) <= ship.stats.gun_range, "%s stays in gun range" % ship.stats.code)
+	check(bb.salvos_fired > 0, "and keeps firing")
+	var sub: Ship = m.spawn_ship(SS, 0, Vector2(1000.0, 400.0), 0.0)
+	var cv: Ship = m.spawn_ship(CV, 0, Vector2(600.0, 1200.0), 0.0)
+	check(cv.order_attack(target, true) and not cv.broadside_order, "carriers do not turn broadside")
+	sub.order_attack(target)
+	check(not sub.broadside_order, "submarines do not turn broadside")
+	# A move order ends the broadside.
+	bb.order_move(Vector2(900.0, 1200.0))
+	check(not bb.broadside_order, "a move order cancels the broadside")
+
+
+# --- Batch 4: pause, mining marker, radar over islands, garrison regeneration, title ----
+
+func test_40_radar_ships_see_over_islands() -> void:
+	var map: MapData = open_map()
+	add_island(map, MapData.KIND_COVER, Vector2(1600.0, 1200.0), 120.0)
+	var m: Match = await start(map)
+	var radar: Ship = m.spawn_ship(RD, 0, Vector2(1350.0, 1200.0))
+	var hidden: Ship = hull(m, CL, 1, Vector2(1850.0, 1200.0))
+	var boat: Ship = m.spawn_ship(SS, 1, Vector2(1850.0, 1350.0))
+	await seconds(1.0)
+	check(not m.has_los(radar.position, hidden.position), "the island is between them")
+	check(hidden.spotted_by[0], "a Radar Ship sees a ship behind an island")
+	check(not boat.spotted_by[0], "radar does not find submerged submarines")
+	radar.kill()
+	var scout: Ship = m.spawn_ship(DD, 0, Vector2(1350.0, 1200.0))
+	await seconds(1.0)
+	check(not hidden.spotted_by[0], "a destroyer in the same spot does not (%s)" % scout.stats.code)
+
+
+func test_41_shipyard_islands_regenerate_their_garrison() -> void:
+	var map: MapData = open_map()
+	add_island(map, MapData.KIND_MAJOR, Vector2(2400.0, 1200.0), 130.0)
+	add_island(map, MapData.KIND_MAJOR, Vector2(1200.0, 2000.0), 130.0)
+	var m: Match = await start(map)
+	var b: GameBalance = GameData.balance()
+	var yard_isle: Island = m.islands[0]
+	var bare_isle: Island = m.islands[1]
+	yard_isle.set_owner_team(1)
+	bare_isle.set_owner_team(1)
+	yard_isle.shipyard.tier = 2
+	bare_isle.shipyard.tier = 1
+	var fort: IslandGarrison = yard_isle.garrison
+	var bare: IslandGarrison = bare_isle.garrison
+	fort.apply_damage(1000.0, true, false)
+	bare.apply_damage(1000.0, true, false)
+	var hurt: float = fort.hp
+	await seconds(b.garrison_regen_delay - 0.5)
+	check_near(fort.hp, hurt, "no healing within %ds of the last hit" % int(b.garrison_regen_delay))
+	fort.apply_damage(10.0, true, false)
+	hurt = fort.hp
+	await seconds(b.garrison_regen_delay - 0.5)
+	check_near(fort.hp, hurt, "a new hit restarts the wait")
+	await seconds(3.5)
+	var healed: float = fort.hp - hurt
+	check(healed > fort.max_hp * b.garrison_regen_rate * 2.0 and healed < fort.max_hp * b.garrison_regen_rate * 3.5,
+		"then it heals slowly (%.0f HP in ~3s)" % healed)
+	check_near(bare.hp, bare.max_hp - 1000.0, "a Tier 1 island does not heal")
+	fort.hp = fort.max_hp - 1.0
+	await seconds(1.0)
+	check_near(fort.hp, fort.max_hp, "never above max HP")
+
+
+func test_42_resource_ship_mining_marker_and_notice() -> void:
+	var map: MapData = open_map()
+	add_island(map, MapData.KIND_COVER, Vector2(1500.0, 800.0), 100.0)
+	var m: Match = await start(map, [HUMAN, NONE], true)
+	var miner: Ship = m.spawn_ship(RS, 0, Vector2(1500.0, 1300.0))
+	await seconds(0.5)
+	check(miner.shown_mining_island() == null, "no marker away from islands")
+	miner.order_move(Vector2(1500.0, 800.0 + 100.0 + 90.0))
+	var waited: int = 0
+	while miner.shown_mining_island() == null and waited < 3600:
+		await frames(1)
+		waited += 1
+	check(miner.shown_mining_island() == m.islands[0], "the marker shows once it mines")
+	await seconds(0.3)
+	check(m.hud.last_notice().contains("Resource Ship mining"), "the HUD announces it (%s)" % m.hud.last_notice())
+
+
+func test_43_pause_freezes_single_player_matches() -> void:
+	var m: Match = await start(open_map(), [HUMAN, NONE], true)
+	var ship: Ship = m.spawn_ship(DD, 0, Vector2(1000.0, 1200.0))
+	ship.order_move(Vector2(2000.0, 1200.0))
+	await seconds(0.5)
+	check(m.hud._pause_button.visible, "single player has a pause button")
+	m.hud.toggle_pause()
+	check(get_tree().paused and m.hud.is_paused(), "pause stops the game")
+	var t: float = m.sim_time
+	var at: Vector2 = ship.position
+	await frames(30)
+	check_near(m.sim_time, t, "the clock stands still")
+	check(ship.position.distance_to(at) < 0.01, "ships stand still")
+	m.hud.toggle_pause()
+	check(not get_tree().paused, "resume")
+	await frames(30)
+	check(m.sim_time > t, "the clock runs again")
+	m.hud.set_paused(true)
+	m.queue_free()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(not get_tree().paused, "a match that ends while paused unpauses the game")
+
+
+func test_44_title_screen_start_button() -> void:
+	var was_shown: bool = GameSettings.menu_shown
+	var level: GameSettings.Difficulty = GameSettings.ai_difficulty
+	GameSettings.menu_shown = false
+	var menu: MainMenu = (load(GameSettings.MENU_SCENE) as PackedScene).instantiate() as MainMenu
+	add_child(menu)
+	await frames(2)
+	check(menu.start_screen != null and menu.start_screen.visible, "the game opens on a title screen")
+	check(not menu.size_buttons[0].is_visible_in_tree(), "the menu waits behind it")
+	menu.press_start()
+	await frames(30)
+	check(menu.start_screen == null and menu.size_buttons[0].is_visible_in_tree(), "Start shows the menu")
+	menu.queue_free()
+	await frames(2)
+	var again: MainMenu = (load(GameSettings.MENU_SCENE) as PackedScene).instantiate() as MainMenu
+	add_child(again)
+	await frames(2)
+	check(again.start_screen == null, "coming back from a match skips the title screen")
+	again.queue_free()
+	await frames(2)
+	GameSettings.menu_shown = was_shown
+	GameSettings.ai_difficulty = level

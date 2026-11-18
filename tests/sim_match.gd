@@ -14,10 +14,12 @@ var _max_time: float = 3600.0
 var _quiet: bool = false
 var _next_report: float = REPORT_INTERVAL
 var _violations: Array[String] = []
-var _peak_fleet: Array[int] = [0, 0]
+var _peak_fleet: Array[int] = [0, 0, 0, 0]
 var _peak_projectiles: int = 0
-var _built: Array[int] = [0, 0]
-var _lost: Array[int] = [0, 0]
+var _built: Array[int] = [0, 0, 0, 0]
+var _lost: Array[int] = [0, 0, 0, 0]
+## Sides knocked out, in order.
+var _eliminated: Array[int] = []
 var _classes_built: Dictionary[String, int] = {}
 var _captures: int = 0
 ## Island garrisons shot down, and islands captured again after falling.
@@ -34,15 +36,16 @@ var _dd_torpedoes: Dictionary[int, int] = {}
 var _dd_charges: Dictionary[int, int] = {}
 var _wall_start: int = 0
 ## Per team: orders sent at the previous physics frame, and sim time of the last order.
-var _orders_seen: Array[int] = [0, 0]
-var _last_order_time: Array[float] = [-1000.0, -1000.0]
+var _orders_seen: Array[int] = [0, 0, 0, 0]
+var _last_order_time: Array[float] = [-1000.0, -1000.0, -1000.0, -1000.0]
 var _done: bool = false
 
 
 func _ready() -> void:
 	var seed_value: int = 1
 	var with_ui: bool = false
-	var levels: Array[int] = [int(GameSettings.Difficulty.HARD), int(GameSettings.Difficulty.HARD)]
+	var hard: int = int(GameSettings.Difficulty.HARD)
+	var levels: Array[int] = [hard, hard, hard, hard]
 	for arg: String in OS.get_cmdline_user_args():
 		if arg.begins_with("--seed="):
 			seed_value = int(arg.trim_prefix("--seed="))
@@ -54,25 +57,33 @@ func _ready() -> void:
 			_quiet = true
 		elif arg.begins_with("--difficulty="):
 			var level: int = int(GameSettings.difficulty_from_name(arg.trim_prefix("--difficulty=")))
-			levels = [level, level]
+			levels = [level, level, level, level]
 		elif arg.begins_with("--difficulty0="):
 			levels[0] = int(GameSettings.difficulty_from_name(arg.trim_prefix("--difficulty0=")))
 		elif arg.begins_with("--difficulty1="):
 			levels[1] = int(GameSettings.difficulty_from_name(arg.trim_prefix("--difficulty1=")))
 	_match = (load(MAIN_SCENE) as PackedScene).instantiate() as Match
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with("--alliance="):
+			# e.g. --alliance=1,1,2,2: sides 0+1 against 2+3.
+			var ids: Array[int] = []
+			for part: String in arg.trim_prefix("--alliance=").split(","):
+				ids.append(int(part))
+			_match.alliance = ids
 	_match.map_seed = seed_value
 	_match.team_control = [Match.ControlType.AI, Match.ControlType.AI]
 	_match.ai_difficulty = levels
 	_match.create_ui = with_ui
 	_match.ship_spawned.connect(_on_ship_spawned)
 	_match.match_ended.connect(_on_match_ended)
+	_match.team_eliminated.connect(_on_team_eliminated)
 	add_child(_match)
 	for island: Island in _match.islands:
 		if island.is_capturable():
 			_island_owner[island] = island.owner_team
 			island.owner_changed.connect(_on_island_owner_changed)
 	_wall_start = Time.get_ticks_msec()
-	print("SIM seed=%d islands=%d ui=%s difficulty=%s/%s" % [seed_value, _match.islands.size(), with_ui,
+	print("SIM seed=%d players=%d islands=%d ui=%s difficulty=%s/%s" % [seed_value, _match.team_count, _match.islands.size(), with_ui,
 		GameSettings.difficulty_name(levels[0] as GameSettings.Difficulty),
 		GameSettings.difficulty_name(levels[1] as GameSettings.Difficulty)])
 
@@ -90,6 +101,11 @@ func _on_island_owner_changed(island: Island, new_owner: int) -> void:
 			_violation("captured island has no fresh garrison")
 	else:
 		_garrisons_fallen += 1
+
+
+func _on_team_eliminated(team: int) -> void:
+	_eliminated.append(team)
+	print("SIM t=%.0f side %d eliminated" % [_match.sim_time, team])
 
 
 func _on_ship_spawned(ship: Ship) -> void:
@@ -137,7 +153,7 @@ func _audit_orders() -> void:
 func _audit() -> void:
 	var cap: int = GameData.balance().fleet_cap
 	_peak_projectiles = maxi(_peak_projectiles, _match.projectile_count())
-	for team: int in 2:
+	for team: int in _match.team_count:
 		var fleet: int = _match.fleet_count(team)
 		_peak_fleet[team] = maxi(_peak_fleet[team], fleet)
 		if fleet > cap:
@@ -173,8 +189,7 @@ func _audit() -> void:
 				_air_time[ship.get_instance_id()] = seen
 			if ship.airborne_squadrons() > ship.stats.max_squadrons:
 				_violation("carrier of team %d has %d squadrons airborne" % [ship.team, ship.airborne_squadrons()])
-		if ship.position.x < -50.0 or ship.position.y < -50.0 \
-				or ship.position.x > _match.map_data.size.x + 50.0 or ship.position.y > _match.map_data.size.y + 50.0:
+		if not _match.map_data.contains(ship.position, -50.0):
 			_violation("%s left the map" % ship.stats.code)
 		# A ship that has somewhere to go but has not moved for 40s is stuck.
 		if ship.is_combat_ready() and ship.has_destination() and ship.velocity.length() < 2.0:
@@ -194,16 +209,16 @@ func _audit() -> void:
 
 func _report_line() -> void:
 	var parts: Array[String] = []
-	for team: int in 2:
+	for team: int in _match.team_count:
 		var owned: int = 0
 		for island: Island in _match.islands:
 			if island.owner_team == team:
 				owned += 1
 		var ai: AIController = _match.ai_controllers[team]
-		parts.append("T%d fleet=%d isl=%d bank=%d/%d base=%.0f %s w%d" % [team, _match.fleet_count(team), owned,
+		parts.append("T%d%s fleet=%d isl=%d bank=%d/%d base=%.0f %s w%d" % [team, " OUT" if _match.eliminated[team] else "", _match.fleet_count(team), owned,
 			_match.economy.gold[team], _match.economy.steel[team], _match.bases[team].hp,
 			AIController.ArmyState.keys()[ai.army_state], ai.waves_launched])
-	print("t=%4.0fs  %s  |  %s  proj=%d" % [_match.sim_time, parts[0], parts[1], _match.projectile_count()])
+	print("t=%4.0fs  %s  proj=%d" % [_match.sim_time, "  |  ".join(parts), _match.projectile_count()])
 
 
 func _on_match_ended(_winner: int) -> void:
@@ -242,7 +257,7 @@ func _finish(outcome: String) -> void:
 	for count: int in _dd_charges.values():
 		dd_charges += count
 	print("  destroyers=%d torpedoes_launched=%d depth_charges=%d" % [_dd_torpedoes.size(), dd_torpedoes, dd_charges])
-	print("  garrisons_fallen=%d islands_retaken=%d orders=%s" % [_garrisons_fallen, _retaken, _orders_seen])
+	print("  garrisons_fallen=%d islands_retaken=%d orders=%s eliminated=%s" % [_garrisons_fallen, _retaken, _orders_seen, _eliminated])
 	print("  violations=%d" % _violations.size())
 	var ok: bool = outcome == "WINNER" and _violations.is_empty()
 	print("SIM " + ("OK" if ok else "FAILED"))

@@ -16,14 +16,21 @@ run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 
+[autoload]
+
+Net="*res://scripts/net/net_session.gd"
+Sfx="*res://scripts/audio/sfx.gd"
+
 [debug]
 
 gdscript/warnings/untyped_declaration=2
 
 [display]
 
-window/size/viewport_width=1600
-window/size/viewport_height=900
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/window_width_override=1600
+window/size/window_height_override=900
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
@@ -37,6 +44,8 @@ window/stretch/aspect="expand"
 2d_physics/layer_6="Vision/Spotting"
 2d_physics/layer_7="Team 0 Hitbox"
 2d_physics/layer_8="Team 1 Hitbox"
+2d_physics/layer_9="Team 2 Hitbox"
+2d_physics/layer_10="Team 3 Hitbox"
 
 [rendering]
 

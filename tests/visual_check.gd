@@ -6,7 +6,7 @@ extends Node
 ## Run:  godot --path . --resolution 1600x900 res://tests/visual_check.tscn -- --out=C:/some/folder
 
 const MAIN_SCENE: String = "res://scenes/main.tscn"
-const FLEET: Array[int] = [8, 4, 6, 5, 4, 3]  # DD, SS, CL, CA, BB, CV = 30 hulls
+const FLEET: Array[int] = [7, 3, 5, 4, 3, 3, 2, 3]  # DD, SS, CL, CA, BC, BB, SBB, CV = 30 hulls
 
 var _out_dir: String = "user://"
 var _match: Match = null
@@ -160,13 +160,41 @@ func _run() -> void:
 	await _wait(1.0)
 	await _shot("05_enemy_base_in_fog.png")
 
+	# A Resource Ship mining the island nearest our base (gold marker).
+	var home: Vector2 = _match.bases[0].position
+	var near: Island = _match.islands[0]
+	for island: Island in _match.islands:
+		if island.position.distance_to(home) < near.position.distance_to(home):
+			near = island
+	var dir: Vector2 = (home - near.position).normalized()
+	_match.spawn_ship(ShipStats.ShipClass.RS, 0, near.position + dir * (near.radius + 60.0), dir.angle() + PI * 0.5)
+	_match.camera.position = near.position + dir * (near.radius * 0.5)
+	_match.camera.zoom = Vector2(1.6, 1.6)
+	await _wait(2.0)
+	await _shot("05b_resource_ship_mining.png")
+
+	# The pause screen.
+	_match.hud.set_paused(true)
+	for i: int in 20:
+		await get_tree().process_frame
+	await _shot("05c_paused.png")
+	_match.hud.set_paused(false)
+
 	# The start menu.
 	_match.queue_free()
 	await _wait(0.3)
 	GameSettings.menu_shown = true  # keep --size= from auto-starting a match out of this shot
-	add_child((load(GameSettings.MENU_SCENE) as PackedScene).instantiate())
+	var menu: Node = (load(GameSettings.MENU_SCENE) as PackedScene).instantiate()
+	add_child(menu)
 	await _wait(0.6)
 	await _shot("06_start_menu.png")
+	menu.queue_free()
+	await _wait(0.2)
+	# The title screen the game opens on.
+	GameSettings.menu_shown = false
+	add_child((load(GameSettings.MENU_SCENE) as PackedScene).instantiate())
+	await _wait(0.8)
+	await _shot("07_title_screen.png")
 	get_tree().quit(0)
 
 

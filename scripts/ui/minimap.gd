@@ -44,7 +44,13 @@ func _draw() -> void:
 	if match_ref == null or match_ref.map_data == null:
 		return
 	var s: Vector2 = _scale()
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0.05, 0.14, 0.22, 0.95))
+	var map: MapData = match_ref.map_data
+	if map.circular:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.05, 0.08, 0.95))
+		draw_circle(map.center() * s, map.radius() * s.x, Color(0.05, 0.14, 0.22))
+		draw_arc(map.center() * s, map.radius() * s.x, 0.0, TAU, 64, Color(0.5, 0.75, 0.9, 0.5), 1.0)
+	else:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.05, 0.14, 0.22, 0.95))
 	for front: WeatherFront in match_ref.fronts:
 		draw_circle(front.position * s, front.radius * s.x, Color(0.8, 0.84, 0.9, 0.18))
 	for island: Island in match_ref.islands:

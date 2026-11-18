@@ -39,7 +39,7 @@ func world_to_screen(world_pos: Vector2) -> Vector2:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not input_enabled or match_ref == null or match_ref.is_over:
+	if not input_enabled or match_ref == null or match_ref.is_over or match_ref.eliminated[team]:
 		return
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
@@ -68,8 +68,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _handle_key(key: InputEventKey) -> void:
 	match key.keycode:
 		KEY_X:
-			for ship: Ship in selected_ships:
-				ship.order_stop()
+			_prune_selection()
+			if not selected_ships.is_empty():
+				_send({"type": "stop", "ships": match_ref.ship_ids(selected_ships)})
 		KEY_ESCAPE:
 			clear_selection()
 		KEY_R:
@@ -85,12 +86,17 @@ func _handle_key(key: InputEventKey) -> void:
 			if selected_yard != null:
 				request_upgrade()
 		KEY_C:
-			if selected_yard != null:
-				selected_yard.cancel_last()
-		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6:
+			request_cancel()
+		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0, KEY_MINUS:
 			if selected_yard != null:
 				var classes: Array[ShipStats.ShipClass] = GameData.all_classes()
-				request_build(classes[int(key.keycode) - int(KEY_1)])
+				var index: int = int(key.keycode) - int(KEY_1)
+				if key.keycode == KEY_0:
+					index = 9
+				elif key.keycode == KEY_MINUS:
+					index = 10
+				if index < classes.size():
+					request_build(classes[index])
 
 
 # --- Selection --------------------------------------------------------------
@@ -205,7 +211,7 @@ func enemy_at(world_pos: Vector2) -> Combatant:
 		return best
 	# An enemy-held island can be ordered attacked before it is spotted: everyone knows where it is.
 	for fort: IslandGarrison in match_ref.garrisons:
-		if fort.team == 1 - team and fort.position.distance_to(world_pos) <= fort.hit_radius():
+		if fort.is_alive() and fort.is_enemy_of(team) and fort.position.distance_to(world_pos) <= fort.hit_radius():
 			return fort
 	return null
 
@@ -219,63 +225,60 @@ func own_dock_at(world_pos: Vector2) -> Shipyard:
 	return null
 
 
+## Every order goes to the Match as a command (and from a LAN client on to the host).
+## Shows the notice that comes back, if any, and returns it.
+func _send(cmd: Dictionary) -> String:
+	var note: String = match_ref.command(cmd)
+	if note != "" and match_ref.hud != null:
+		match_ref.hud.notify(note)
+	return note
+
+
 func order_dock(yard: Shipyard) -> void:
 	_prune_selection()
 	if yard == null or yard.team != team or selected_ships.is_empty():
 		return
-	match_ref.order_group_dock(selected_ships, yard)
-	if match_ref.hud == null:
-		return
-	# Tell the player up front if some of these ships will not be repaired there.
-	var problem: String = ""
-	for ship: Ship in selected_ships:
-		problem = yard.repair_block_reason(ship)
-		if problem != "":
-			break
-	if problem == "":
-		match_ref.hud.notify("Docking at %s for repairs" % yard.site_name)
-	else:
-		match_ref.hud.notify("Docking at %s - %s" % [yard.site_name, problem])
+	_send({"type": "dock", "ships": match_ref.ship_ids(selected_ships), "yard": match_ref.yards.find(yard)})
 
 
 func issue_order_at(world_pos: Vector2) -> void:
 	_prune_selection()
 	if selected_ships.is_empty():
 		if selected_yard != null:
-			selected_yard.rally_point = match_ref.nav.nearest_free(world_pos, false)
+			_send({"type": "rally", "yard": match_ref.yards.find(selected_yard), "x": world_pos.x, "y": world_pos.y})
 		return
+	var ids: Array[int] = match_ref.ship_ids(selected_ships)
 	var target: Combatant = enemy_at(world_pos)
 	if target != null:
-		for ship: Ship in selected_ships:
-			if ship.order_attack(target) or match_ref.hud == null:
-				continue
-			if target.is_home_base() and ship.stats.is_submarine:
-				match_ref.hud.notify("Submarines cannot attack the Home Base")
-			elif target.is_structure() and ship.stats.is_submarine:
-				match_ref.hud.notify("Submarines cannot attack an island garrison")
-			elif target.is_submarine() and not ship.stats.can_target_submarines:
-				match_ref.hud.notify("%ss cannot target Submarines" % ship.stats.display_name)
+		_send({"type": "attack", "ships": ids, "target": match_ref.combatant_ref(target)})
 		return
 	var dock: Shipyard = own_dock_at(world_pos)
 	if dock != null:
 		order_dock(dock)
 		return
-	match_ref.order_group_move(selected_ships, world_pos)
+	_send({"type": "move", "ships": ids, "x": world_pos.x, "y": world_pos.y})
 
 
+## True if the order was accepted (on a LAN client: sent - the host answers with a notice
+## if it refuses).
 func request_build(ship_class: ShipStats.ShipClass) -> bool:
 	if selected_yard == null:
 		return false
-	var reason: String = selected_yard.try_enqueue_ship(ship_class)
-	if reason != "" and match_ref.hud != null:
-		match_ref.hud.notify(reason)
-	return reason == ""
+	return _send({"type": "build", "yard": match_ref.yards.find(selected_yard), "cls": int(ship_class)}) == ""
 
 
 func request_upgrade() -> bool:
 	if selected_yard == null:
 		return false
-	var reason: String = selected_yard.try_enqueue_upgrade()
-	if reason != "" and match_ref.hud != null:
-		match_ref.hud.notify(reason)
-	return reason == ""
+	return _send({"type": "upgrade", "yard": match_ref.yards.find(selected_yard)}) == ""
+
+
+func request_cancel() -> void:
+	if selected_yard != null:
+		_send({"type": "cancel", "yard": match_ref.yards.find(selected_yard)})
+
+
+## Buys radar for the selected island (a Major island with a Tier 3 shipyard).
+func request_radar() -> void:
+	if selected_yard != null:
+		_send({"type": "radar", "yard": match_ref.yards.find(selected_yard)})

@@ -10,8 +10,8 @@ extends Node
 ## Difficulty: Hard sends every order the moment it decides on it. Easy and Medium can only
 ## control one ship at a time: every ship order goes through `_command`, which collects
 ## what the AI wants during a think and sends just one of them, to the ship that has waited
-## longest. Medium does that every second, Easy every ORDER_INTERVAL_EASY seconds (and it
-## also plans production less often). Ships still fire, launch planes and drop depth
+## longest. Medium does that every ORDER_INTERVAL_MEDIUM seconds, Easy every
+## ORDER_INTERVAL_EASY seconds, and both plan production less often than Hard. Ships still fire, launch planes and drop depth
 ## charges on their own, exactly as a player's ships do.
 
 enum ArmyState { BUILDUP, STAGING, ASSAULT }
@@ -28,9 +28,10 @@ const WAVE_BASE_STRENGTH: float = 2200.0
 const WAVE_STEP_STRENGTH: float = 700.0
 const WAVE_MAX_STRENGTH: float = 5600.0
 ## Seconds between ship orders on Medium and Easy.
-const ORDER_INTERVAL_MEDIUM: float = 1.0
-const ORDER_INTERVAL_EASY: float = 3.0
-## Easy only revisits its build queue every this many thinks.
+const ORDER_INTERVAL_MEDIUM: float = 2.0
+const ORDER_INTERVAL_EASY: float = 5.0
+## Medium and Easy only revisit their build queues every this many thinks.
+const MEDIUM_PRODUCTION_EVERY: int = 2
 const EASY_PRODUCTION_EVERY: int = 4
 
 var team: int = 1
@@ -43,6 +44,8 @@ var orders_sent: int = 0
 
 var _think_cd: float = 0.5
 var _capture_jobs: Dictionary[Ship, Island] = {}
+## Resource Ships and the island each one is sent to mine.
+var _mining_jobs: Dictionary[Ship, Island] = {}
 var _order_keys: Dictionary[Ship, String] = {}
 var _wave: Array[Ship] = []
 var _stage_point: Vector2 = Vector2.ZERO
@@ -68,7 +71,9 @@ func setup(p_match: Match, p_team: int,
 
 
 func _physics_process(delta: float) -> void:
-	if match_ref == null or match_ref.is_over:
+	if match_ref != null and match_ref.replica:
+		return
+	if match_ref == null or match_ref.is_over or match_ref.eliminated[team]:
 		return
 	_think_cd -= delta
 	_order_cd -= delta
@@ -80,10 +85,11 @@ func _physics_process(delta: float) -> void:
 func think() -> void:
 	_thinks += 1
 	_prune()
-	if difficulty != GameSettings.Difficulty.EASY or _thinks % EASY_PRODUCTION_EVERY == 1:
+	if _thinks % production_every() == 1 % production_every():
 		_think_production()
 	_think_capture()
 	_think_army()
+	_think_support()
 	_think_submarines()
 	_flush_orders()
 
@@ -91,6 +97,16 @@ func think() -> void:
 ## True on Easy and Medium: one ship order at a time.
 func is_limited() -> bool:
 	return difficulty != GameSettings.Difficulty.HARD
+
+
+## Thinks between production decisions: 1 on Hard.
+func production_every() -> int:
+	match difficulty:
+		GameSettings.Difficulty.EASY:
+			return EASY_PRODUCTION_EVERY
+		GameSettings.Difficulty.MEDIUM:
+			return MEDIUM_PRODUCTION_EVERY
+	return 1
 
 
 func order_interval() -> float:
@@ -101,8 +117,20 @@ func _home() -> HomeBase:
 	return match_ref.bases[team]
 
 
+## The base this AI is trying to destroy: the nearest hostile one still standing.
 func _enemy_base() -> HomeBase:
-	return match_ref.bases[1 - team]
+	var home_pos: Vector2 = _home().position
+	var best: HomeBase = null
+	var fallback: HomeBase = null
+	for base: HomeBase in match_ref.bases:
+		if not match_ref.are_enemies(base.team, team):
+			continue
+		fallback = base
+		if not base.is_alive():
+			continue
+		if best == null or base.position.distance_squared_to(home_pos) < best.position.distance_squared_to(home_pos):
+			best = base
+	return best if best != null else fallback
 
 
 func _prune() -> void:
@@ -112,6 +140,9 @@ func _prune() -> void:
 	for ship: Ship in _last_ordered.keys():
 		if not ship.is_alive():
 			_last_ordered.erase(ship)
+	for ship: Ship in _mining_jobs.keys():
+		if not ship.is_alive():
+			_mining_jobs.erase(ship)
 	for ship: Ship in _capture_jobs.keys():
 		var island: Island = _capture_jobs[ship]
 		if not ship.is_alive() or island.owner_team == team:
@@ -242,6 +273,7 @@ func _think_production() -> void:
 		if forward.can_upgrade():
 			if not _queue_upgrade_if_affordable(forward):
 				saving = saving or total >= 6
+	_buy_radar()
 	if saving or total >= GameData.balance().fleet_cap:
 		return
 
@@ -266,15 +298,30 @@ func _desired_classes(counts: Dictionary[int, int], best_tier: int, total: int) 
 	var ca: int = counts[int(ShipStats.ShipClass.CA)]
 	var bb: int = counts[int(ShipStats.ShipClass.BB)]
 	var cv: int = counts[int(ShipStats.ShipClass.CV)]
+	var bc: int = counts[int(ShipStats.ShipClass.BC)]
+	var sbb: int = counts[int(ShipStats.ShipClass.SBB)]
+	var rs: int = counts[int(ShipStats.ShipClass.RS)]
+	var rd: int = counts[int(ShipStats.ShipClass.RD)]
+	var lcv: int = counts[int(ShipStats.ShipClass.LCV)]
 	var want: Array[ShipStats.ShipClass] = []
 	if dd < 3:
 		want.append(ShipStats.ShipClass.DD)
+	if rs < 2 and dd >= 3:
+		want.append(ShipStats.ShipClass.RS)
+	if rd < 1 and total >= 8:
+		want.append(ShipStats.ShipClass.RD)
 	if best_tier >= 3:
 		if bb < 3:
 			want.append(ShipStats.ShipClass.BB)
+		if sbb < 1 and bb >= 2:
+			want.append(ShipStats.ShipClass.SBB)
+		if bc < 2 and bb >= 1:
+			want.append(ShipStats.ShipClass.BC)
 		if cv < 2 and bb >= 1:
 			want.append(ShipStats.ShipClass.CV)
 	if best_tier >= 2:
+		if lcv < 1 and total >= 6:
+			want.append(ShipStats.ShipClass.LCV)
 		if ca < 5 and ca <= cl:
 			want.append(ShipStats.ShipClass.CA)
 		if cl < 6:
@@ -333,7 +380,7 @@ func _think_capture() -> void:
 		taken.append(island)
 	for ship: Ship in _capture_jobs.keys():
 		var island: Island = _capture_jobs[ship]
-		if island.owner_team == 1 - team and island.garrison != null:
+		if island.owner_team >= 0 and match_ref.are_enemies(island.owner_team, team) and island.garrison != null:
 			# An enemy-held island is fortified: shoot its garrison down first.
 			_issue(ship, "siege:%d" % island.get_instance_id(), ship.order_attack.bind(island.garrison))
 			continue
@@ -347,7 +394,7 @@ func _pick_capturer(island: Island) -> Ship:
 	var best: Ship = null
 	var best_score: float = INF
 	for ship: Ship in match_ref.ships_of(team):
-		if _capture_jobs.has(ship) or ship.stats.is_submarine:
+		if _capture_jobs.has(ship) or ship.stats.is_submarine or ship.stats.is_support():
 			continue
 		if island.kind == Island.Kind.MINOR and not ship.stats.shallow_draft:
 			continue
@@ -368,7 +415,7 @@ func _pick_capturer(island: Island) -> Ship:
 func _army() -> Array[Ship]:
 	var result: Array[Ship] = []
 	for ship: Ship in match_ref.ships_of(team):
-		if not _capture_jobs.has(ship):
+		if not _capture_jobs.has(ship) and not ship.stats.is_support():
 			result.append(ship)
 	return result
 
@@ -559,6 +606,71 @@ func _end_wave() -> void:
 	_wave.clear()
 	_stall_timer = 0.0
 	army_state = ArmyState.BUILDUP
+
+
+# --- Support ships ----------------------------------------------------------
+
+## Radar for every Tier 3 island once there is a fleet to protect.
+func _buy_radar() -> void:
+	if match_ref.fleet_count(team) < 10:
+		return
+	var balance: GameBalance = GameData.balance()
+	for island: Island in _owned_majors():
+		if island.radar_block_reason(team) == "" and _can_afford(balance.radar_gold_cost, balance.radar_steel_cost):
+			island.try_buy_radar(team)
+
+
+## Resource Ships mine the safest free islands; Radar Ships sail with the army.
+func _think_support() -> void:
+	var home_pos: Vector2 = _home().position
+	var enemy_pos: Vector2 = _enemy_base().position
+	for ship: Ship in match_ref.ships_of(team):
+		if ship.stats.mines_islands:
+			var island: Island = _mining_jobs.get(ship) as Island
+			if island == null or (island.owner_team >= 0 and match_ref.are_enemies(island.owner_team, team)):
+				island = _pick_mining_island(ship, home_pos, enemy_pos)
+				if island == null:
+					_mining_jobs.erase(ship)
+					continue
+				_mining_jobs[ship] = island
+			var dir: Vector2 = (home_pos - island.position).normalized()
+			var spot: Vector2 = match_ref.nav.nearest_free(island.position + dir * (island.radius + 70.0), true)
+			_issue(ship, "mine:%d" % island.get_instance_id(), ship.order_move.bind(spot))
+		elif ship.stats.is_support():
+			# Radar picket: keep just behind the middle of the wave (or the home fleet).
+			var group: Array[Ship] = _wave if not _wave.is_empty() else _army()
+			if group.is_empty():
+				continue
+			var center: Vector2 = Vector2.ZERO
+			for other: Ship in group:
+				center += other.position
+			center /= float(group.size())
+			var back: Vector2 = (home_pos - center).normalized() * 150.0
+			var solo: Array[Ship] = [ship]
+			_move_group(solo, match_ref.nav.nearest_free(center + back, true), "radar")
+
+
+## The nearest island to home that is not enemy-held, not deep in enemy water and not
+## already being mined by another of this side's Resource Ships.
+func _pick_mining_island(ship: Ship, home_pos: Vector2, enemy_pos: Vector2) -> Island:
+	var taken: Array[Island] = []
+	for other: Ship in _mining_jobs.keys():
+		if other != ship:
+			taken.append(_mining_jobs[other])
+	var best: Island = null
+	var best_dist: float = INF
+	for island: Island in match_ref.islands:
+		if taken.has(island):
+			continue
+		if island.owner_team >= 0 and match_ref.are_enemies(island.owner_team, team):
+			continue
+		var d_home: float = island.position.distance_to(home_pos)
+		if d_home > island.position.distance_to(enemy_pos):
+			continue
+		if d_home < best_dist:
+			best_dist = d_home
+			best = island
+	return best
 
 
 # --- Submarines -------------------------------------------------------------

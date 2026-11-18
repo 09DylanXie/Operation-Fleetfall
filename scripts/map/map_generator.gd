@@ -1,40 +1,49 @@
 class_name MapGenerator
 extends RefCounted
-## Seeded procedural archipelago generator. One half of the map is generated and
-## point-mirrored through the centre so both players get an equivalent layout.
-## A layout is only accepted if every objective is reachable by the hulls that need it.
+## Seeded procedural archipelago generator. The sea is a circle with one Home Base per
+## player spaced evenly round its rim. One player's wedge is generated and rotated round
+## the centre once per player, so everybody gets an equivalent layout (with two players
+## that is a point mirror). A layout is only accepted if every objective is reachable by
+## the hulls that need it.
 
 const MAX_ATTEMPTS: int = 40
 const PLACEMENT_TRIES: int = 220
 const BLOB_POINTS: int = 14
+## Open water kept between a feature's centre and the rim of the sea.
+const MAJOR_EDGE_MARGIN: float = 320.0
+const MINOR_EDGE_MARGIN: float = 380.0
+const COVER_EDGE_MARGIN: float = 200.0
 
 
-static func generate(seed_value: int, cfg: MapConfig, base_radius: float) -> MapData:
+static func generate(seed_value: int, cfg: MapConfig, base_radius: float, players: int = 2) -> MapData:
+	var count: int = clampi(players, 2, Layers.MAX_TEAMS)
 	var last: MapData = null
 	for attempt: int in MAX_ATTEMPTS:
 		var attempt_seed: int = seed_value + attempt * 7919
-		var map: MapData = _build(attempt_seed, cfg, base_radius)
+		var map: MapData = _build(attempt_seed, cfg, base_radius, count)
 		if map == null:
 			continue
 		last = map
 		if validate(map):
 			return map
 	if last == null:
-		last = _fallback(seed_value, cfg, base_radius)
+		last = _fallback(seed_value, cfg, base_radius, count)
 	return last
 
 
-## Every capture node must be reachable from both bases by a hull that can use it.
+## Every base must be able to reach every other base, and every capture node must be
+## reachable from every base by a hull that can use it.
 static func validate(map: MapData) -> bool:
-	if map.base_positions.size() != 2:
+	if map.base_positions.size() < 2:
 		return false
 	var nav: NavGrid = NavGrid.from_map(map)
 	var harbors: Array[Vector2] = []
 	for base_pos: Vector2 in map.base_positions:
 		var dir: Vector2 = (map.center() - base_pos).normalized()
 		harbors.append(nav.nearest_free(base_pos + dir * (map.base_radius + 110.0), false))
-	if not nav.is_reachable(harbors[0], harbors[1], false):
-		return false
+	for i: int in range(1, harbors.size()):
+		if not nav.is_reachable(harbors[0], harbors[i], false):
+			return false
 	for def: MapData.IslandDef in map.islands:
 		if def.kind == MapData.KIND_COVER:
 			continue
@@ -60,81 +69,96 @@ static func make_blob(rng: RandomNumberGenerator, radius: float) -> PackedVector
 	return poly
 
 
-static func _build(seed_value: int, cfg: MapConfig, base_radius: float) -> MapData:
-	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
-	rng.seed = seed_value
+static func _new_map(seed_value: int, cfg: MapConfig, base_radius: float, players: int) -> MapData:
 	var map: MapData = MapData.new()
-	map.size = cfg.map_size
+	map.size = cfg.size_for(players)
+	map.circular = true
 	map.seed_used = seed_value
 	map.cell_size = cfg.cell_size
 	map.clearance = cfg.island_clearance
 	map.base_radius = base_radius
+	return map
+
+
+static func _build(seed_value: int, cfg: MapConfig, base_radius: float, players: int) -> MapData:
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var map: MapData = _new_map(seed_value, cfg, base_radius, players)
+	var center: Vector2 = map.center()
+	var step: float = TAU / float(players)
+	# Player 1 starts roughly in the west; the others follow clockwise.
+	var first_angle: float = PI + rng.randf_range(-0.35, 0.35)
 
 	# Each entry is Vector3(x, y, exclusion_radius).
 	var placed: Array[Vector3] = []
-	var size: Vector2 = cfg.map_size
-	var base0: Vector2 = Vector2(
-		cfg.base_margin_x, size.y * 0.5 + rng.randf_range(-size.y * 0.22, size.y * 0.22))
-	var base1: Vector2 = size - base0
-	map.base_positions = [base0, base1]
-	placed.append(Vector3(base0.x, base0.y, cfg.base_clear_radius))
-	placed.append(Vector3(base1.x, base1.y, cfg.base_clear_radius))
+	for i: int in players:
+		var base_pos: Vector2 = center + Vector2.from_angle(first_angle + step * float(i)) * (
+			map.radius() - cfg.base_margin_x)
+		map.base_positions.append(base_pos)
+		placed.append(Vector3(base_pos.x, base_pos.y, cfg.base_clear_radius))
 
 	if cfg.center_major:
-		var c: Vector2 = size * 0.5
-		map.add_island(MapData.KIND_MAJOR, c, cfg.major_radius, 0.0, make_blob(rng, cfg.major_radius))
-		placed.append(Vector3(c.x, c.y, cfg.major_radius + cfg.feature_gap))
+		map.add_island(MapData.KIND_MAJOR, center, cfg.major_radius, 0.0, make_blob(rng, cfg.major_radius))
+		placed.append(Vector3(center.x, center.y, cfg.major_radius + cfg.feature_gap))
 
 	for i: int in cfg.major_per_side:
 		var excl: float = cfg.major_radius + cfg.feature_gap
-		var pos: Vector2 = _place(rng, cfg, placed, excl, 1000.0, size.x * 0.5 - 500.0, 320.0)
+		var pos: Vector2 = _place(rng, map, placed, excl, first_angle, players, MAJOR_EDGE_MARGIN)
 		if pos == Vector2.INF:
 			return null
-		_add_mirrored(map, placed, rng, MapData.KIND_MAJOR, pos, cfg.major_radius, 0.0, excl)
+		_add_rotated(map, placed, rng, MapData.KIND_MAJOR, pos, cfg.major_radius, 0.0, excl, players)
 
 	for i: int in cfg.minor_per_side:
 		var excl: float = cfg.minor_shallow_radius + 60.0
-		var pos: Vector2 = _place(rng, cfg, placed, excl, 700.0, size.x * 0.5 - 420.0, 380.0)
+		var pos: Vector2 = _place(rng, map, placed, excl, first_angle, players, MINOR_EDGE_MARGIN)
 		if pos == Vector2.INF:
 			return null
-		_add_mirrored(map, placed, rng, MapData.KIND_MINOR, pos, cfg.minor_radius,
-			cfg.minor_shallow_radius, excl)
+		_add_rotated(map, placed, rng, MapData.KIND_MINOR, pos, cfg.minor_radius,
+			cfg.minor_shallow_radius, excl, players)
 
 	for i: int in cfg.cover_per_side:
 		var radius: float = rng.randf_range(cfg.cover_radius_min, cfg.cover_radius_max)
 		var excl: float = radius + cfg.feature_gap
-		var pos: Vector2 = _place(rng, cfg, placed, excl, 420.0, size.x * 0.5 - 200.0, 200.0)
+		var pos: Vector2 = _place(rng, map, placed, excl, first_angle, players, COVER_EDGE_MARGIN)
 		if pos == Vector2.INF:
 			continue
-		_add_mirrored(map, placed, rng, MapData.KIND_COVER, pos, radius, 0.0, excl)
+		_add_rotated(map, placed, rng, MapData.KIND_COVER, pos, radius, 0.0, excl, players)
 	return map
 
 
-static func _add_mirrored(map: MapData, placed: Array[Vector3], rng: RandomNumberGenerator,
-		kind: int, pos: Vector2, radius: float, shallow_radius: float, excl: float) -> void:
+## Adds the island and its copy in every other player's wedge.
+static func _add_rotated(map: MapData, placed: Array[Vector3], rng: RandomNumberGenerator,
+		kind: int, pos: Vector2, radius: float, shallow_radius: float, excl: float, players: int) -> void:
 	var poly: PackedVector2Array = make_blob(rng, radius)
-	var mirrored_poly: PackedVector2Array = PackedVector2Array()
-	for p: Vector2 in poly:
-		mirrored_poly.append(-p)
-	var mirror: Vector2 = map.size - pos
-	map.add_island(kind, pos, radius, shallow_radius, poly)
-	map.add_island(kind, mirror, radius, shallow_radius, mirrored_poly)
-	placed.append(Vector3(pos.x, pos.y, excl))
-	placed.append(Vector3(mirror.x, mirror.y, excl))
+	var center: Vector2 = map.center()
+	var step: float = TAU / float(players)
+	for k: int in players:
+		var turn: float = step * float(k)
+		var copy: Vector2 = center + (pos - center).rotated(turn)
+		var copy_poly: PackedVector2Array = PackedVector2Array()
+		for p: Vector2 in poly:
+			copy_poly.append(p.rotated(turn))
+		map.add_island(kind, copy, radius, shallow_radius, copy_poly)
+		placed.append(Vector3(copy.x, copy.y, excl))
 
 
-## Rejection-samples a spot on the left half that clears every placed feature and its own mirror.
-static func _place(rng: RandomNumberGenerator, cfg: MapConfig, placed: Array[Vector3],
-		excl: float, min_x: float, max_x: float, margin_y: float) -> Vector2:
-	var size: Vector2 = cfg.map_size
+## Rejection-samples a spot in the first player's wedge that clears every placed feature
+## and its own rotated copies.
+static func _place(rng: RandomNumberGenerator, map: MapData, placed: Array[Vector3],
+		excl: float, first_angle: float, players: int, edge_margin: float) -> Vector2:
+	var center: Vector2 = map.center()
+	var step: float = TAU / float(players)
+	var reach: float = maxf(1.0, map.radius() - edge_margin)
 	for attempt: int in PLACEMENT_TRIES:
-		var pos: Vector2 = Vector2(
-			rng.randf_range(min_x, maxf(min_x + 1.0, max_x)),
-			rng.randf_range(margin_y, size.y - margin_y))
-		var mirror: Vector2 = size - pos
-		if pos.distance_to(mirror) < excl * 2.0:
-			continue
+		var angle: float = first_angle + rng.randf_range(-0.5, 0.5) * step
+		var pos: Vector2 = center + Vector2.from_angle(angle) * sqrt(rng.randf()) * reach
 		var ok: bool = true
+		for k: int in range(1, players):
+			if pos.distance_to(center + (pos - center).rotated(step * float(k))) < excl * 2.0:
+				ok = false
+				break
+		if not ok:
+			continue
 		for other: Vector3 in placed:
 			if pos.distance_to(Vector2(other.x, other.y)) < excl + other.z:
 				ok = false
@@ -145,21 +169,16 @@ static func _place(rng: RandomNumberGenerator, cfg: MapConfig, placed: Array[Vec
 
 
 ## Minimal always-valid map, only used if generation fails for every attempt.
-static func _fallback(seed_value: int, cfg: MapConfig, base_radius: float) -> MapData:
-	var map: MapData = MapData.new()
-	map.size = cfg.map_size
-	map.seed_used = seed_value
-	map.cell_size = cfg.cell_size
-	map.clearance = cfg.island_clearance
-	map.base_radius = base_radius
-	var size: Vector2 = cfg.map_size
-	map.base_positions = [Vector2(cfg.base_margin_x, size.y * 0.5),
-		Vector2(size.x - cfg.base_margin_x, size.y * 0.5)]
-	map.add_island(MapData.KIND_MAJOR, size * 0.5, cfg.major_radius, 0.0,
+static func _fallback(seed_value: int, cfg: MapConfig, base_radius: float, players: int) -> MapData:
+	var map: MapData = _new_map(seed_value, cfg, base_radius, players)
+	var center: Vector2 = map.center()
+	var step: float = TAU / float(players)
+	map.add_island(MapData.KIND_MAJOR, center, cfg.major_radius, 0.0,
 		MapData.circle_polygon(cfg.major_radius))
-	for side: float in [0.25, 0.75]:
-		map.add_island(MapData.KIND_MINOR, Vector2(size.x * side, size.y * 0.22), cfg.minor_radius,
-			cfg.minor_shallow_radius, MapData.circle_polygon(cfg.minor_radius))
-		map.add_island(MapData.KIND_MINOR, Vector2(size.x * side, size.y * 0.78), cfg.minor_radius,
-			cfg.minor_shallow_radius, MapData.circle_polygon(cfg.minor_radius))
+	for i: int in players:
+		var angle: float = PI + step * float(i)
+		map.base_positions.append(center + Vector2.from_angle(angle) * (map.radius() - cfg.base_margin_x))
+		# One Minor island half-way between each pair of neighbouring bases.
+		map.add_island(MapData.KIND_MINOR, center + Vector2.from_angle(angle + step * 0.5) * map.radius() * 0.55,
+			cfg.minor_radius, cfg.minor_shallow_radius, MapData.circle_polygon(cfg.minor_radius))
 	return map

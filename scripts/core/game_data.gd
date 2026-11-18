@@ -19,6 +19,11 @@ const SHIP_PATHS: Array[String] = [
 	"res://data/ships/ca.tres",
 	"res://data/ships/bb.tres",
 	"res://data/ships/cv.tres",
+	"res://data/ships/bc.tres",
+	"res://data/ships/sbb.tres",
+	"res://data/ships/rs.tres",
+	"res://data/ships/rd.tres",
+	"res://data/ships/lcv.tres",
 ]
 
 static var _balance: GameBalance = null
@@ -59,8 +64,13 @@ static func all_classes() -> Array[ShipStats.ShipClass]:
 		ShipStats.ShipClass.SS,
 		ShipStats.ShipClass.CL,
 		ShipStats.ShipClass.CA,
+		ShipStats.ShipClass.BC,
 		ShipStats.ShipClass.BB,
+		ShipStats.ShipClass.SBB,
 		ShipStats.ShipClass.CV,
+		ShipStats.ShipClass.RS,
+		ShipStats.ShipClass.RD,
+		ShipStats.ShipClass.LCV,
 	]
 
 

@@ -15,6 +15,8 @@ static var ai_difficulty: Difficulty = Difficulty.HARD
 ## True once the start menu has been shown. From then on the menu owns the map size and
 ## the command line no longer skips it, so "Main Menu" really returns to the menu.
 static var menu_shown: bool = false
+## Computer opponents in an offline skirmish started from the menu (1 to 3).
+static var ai_opponents: int = 1
 
 
 ## Parses "small" / "medium" / "large" (as used by the --size= command-line argument).

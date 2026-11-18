@@ -3,9 +3,15 @@ extends Camera2D
 ## RTS camera: WASD / arrow keys pan, mouse wheel zooms, middle-mouse drag pans.
 
 const PAN_SPEED: float = 1100.0
-const ZOOM_MIN: float = 0.3
-const ZOOM_MAX: float = 1.6
+const ZOOM_MIN: float = 0.72
+const ZOOM_MAX: float = 4.6
 const ZOOM_STEP: float = 1.12
+## Zoom is cosmetic: the world, its distances and speeds never change. The UI is laid out
+## for a 1920x1080 (FHD) canvas, which is 1.2x wider than the old 1600x900 one, so every
+## zoom value carries that 1.2 factor to show the same slice of sea. On top of that the
+## default view is 20% closer than before (1.4 * 1.2 * 1.2); the minimum zoom still shows
+## as much of the map as it used to.
+const DEFAULT_ZOOM: float = 2.016
 
 var match_ref: Match = null
 var _mid_drag: bool = false
@@ -18,7 +24,7 @@ func setup(p_match: Match) -> void:
 	limit_top = -200
 	limit_right = int(size.x) + 200
 	limit_bottom = int(size.y) + 200
-	zoom = Vector2(0.7, 0.7)
+	zoom = Vector2(DEFAULT_ZOOM, DEFAULT_ZOOM)
 	position_smoothing_enabled = false
 
 

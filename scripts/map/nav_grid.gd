@@ -26,6 +26,8 @@ static func from_map(map: MapData) -> NavGrid:
 			nav.block_circle(def.position, def.shallow_radius, true)
 	for base_pos: Vector2 in map.base_positions:
 		nav.block_circle(base_pos, map.base_radius + map.clearance, false)
+	if map.circular:
+		nav.block_outside_circle(map.center(), map.radius() - map.clearance)
 	return nav
 
 
@@ -104,6 +106,17 @@ func block_circle(center: Vector2, radius: float, deep_only: bool) -> void:
 				_deep_grid.set_point_solid(cell, true)
 				if not deep_only:
 					_shallow_grid.set_point_solid(cell, true)
+
+
+## Blocks every cell beyond `radius`: the rim of a round sea.
+func block_outside_circle(center: Vector2, radius: float) -> void:
+	var r2: float = radius * radius
+	for cy: int in size_cells.y:
+		for cx: int in size_cells.x:
+			var cell: Vector2i = Vector2i(cx, cy)
+			if cell_center(cell).distance_squared_to(center) > r2:
+				_deep_grid.set_point_solid(cell, true)
+				_shallow_grid.set_point_solid(cell, true)
 
 
 func is_blocked(point: Vector2, shallow_draft: bool) -> bool:

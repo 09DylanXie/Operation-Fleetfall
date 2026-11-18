@@ -1,13 +1,14 @@
 class_name Economy
 extends Node
 ## Banks for both teams and the 15-second income tick. Income comes only from
-## map control: a surviving Home Base plus every captured Minor/Major island.
+## map control: a surviving Home Base, every captured Minor/Major island, and every island
+## a Resource Ship is mining (a Minor island's income each, one ship per island per side).
 
 signal resources_changed(team: int, gold: int, steel: int)
 signal tick_paid(team: int, gold: int, steel: int)
 
-var gold: Array[int] = [0, 0]
-var steel: Array[int] = [0, 0]
+var gold: Array[int] = [0, 0, 0, 0]
+var steel: Array[int] = [0, 0, 0, 0]
 var time_to_tick: float = 15.0
 var ticks_paid: int = 0
 var match_ref: Match = null
@@ -17,13 +18,13 @@ func setup(p_match: Match) -> void:
 	match_ref = p_match
 	var balance: GameBalance = GameData.balance()
 	time_to_tick = balance.tick_interval
-	for team: int in 2:
+	for team: int in match_ref.team_count:
 		gold[team] = balance.start_gold
 		steel[team] = balance.start_steel
 
 
 func _physics_process(delta: float) -> void:
-	if match_ref == null or match_ref.is_over:
+	if match_ref == null or match_ref.is_over or match_ref.replica:
 		return
 	time_to_tick -= delta
 	if time_to_tick <= 0.0:
@@ -39,12 +40,27 @@ func income_for(team: int) -> Vector2i:
 	for island: Island in match_ref.islands:
 		if island.owner_team == team:
 			total += island.income()
+	total += mining_income(team)
 	return total
+
+
+## Income from the team's Resource Ships: each island being mined pays a Minor island's
+## income, however many of the team's Resource Ships sit at it.
+func mining_income(team: int) -> Vector2i:
+	var balance: GameBalance = GameData.balance()
+	var mined: Dictionary[Island, bool] = {}
+	for ship: Ship in match_ref.ships:
+		if ship.team != team or not ship.stats.mines_islands:
+			continue
+		var island: Island = ship.mining_island()
+		if island != null:
+			mined[island] = true
+	return Vector2i(balance.minor_gold, balance.minor_steel) * mined.size()
 
 
 func pay_tick() -> void:
 	ticks_paid += 1
-	for team: int in 2:
+	for team: int in match_ref.team_count:
 		var income: Vector2i = income_for(team)
 		gold[team] += income.x
 		steel[team] += income.y

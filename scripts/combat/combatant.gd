@@ -15,8 +15,8 @@ var base_armor: float = 0.0
 var velocity: Vector2 = Vector2.ZERO
 var match_ref: Match = null
 ## spotted_by[t] is true while team t can currently see this combatant.
-var spotted_by: Array[bool] = [false, false]
-var last_known_position: Array[Vector2] = [Vector2.ZERO, Vector2.ZERO]
+var spotted_by: Array[bool] = [false, false, false, false]
+var last_known_position: Array[Vector2] = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]
 
 var _dead: bool = false
 ## Attacker instance id -> sim time at which its attack stops counting.
@@ -30,6 +30,13 @@ static func compute_effective_armor(base: float, active_attackers: int, strip: f
 
 func is_alive() -> bool:
 	return not _dead
+
+
+## True when `other_team` may shoot at this combatant: any other side that is not an ally.
+func is_enemy_of(other_team: int) -> bool:
+	if match_ref != null:
+		return match_ref.are_enemies(team, other_team)
+	return team != other_team
 
 
 func is_home_base() -> bool:
@@ -64,6 +71,47 @@ func aa_kill_chance() -> float:
 ## Extra reach granted to attackers of large targets (measured to the edge, not the centre).
 func range_padding() -> float:
 	return 0.0
+
+
+# --- Air wing hooks (carriers and island air bases override these) -----------
+
+## What this combatant's dive bombers are working right now.
+func air_target() -> Combatant:
+	return null
+
+
+## True while the dive bombers in the air may keep working `air_target()`.
+func strike_active() -> bool:
+	return false
+
+
+## The target for one dive-bomber squadron from here, or null to send it home. By default
+## every squadron works `air_target()` while the strike is active (island air bases).
+func dive_target_for(_squadron: PlaneSquadron) -> Combatant:
+	return air_target() if strike_active() else null
+
+
+## How far from home this combatant's planes may chase a target.
+func air_reach() -> float:
+	return 0.0
+
+
+## A squadron from here landed (`shot_down` false) or was lost.
+func squadron_gone(_squadron: PlaneSquadron, _shot_down: bool) -> void:
+	pass
+
+
+## Enemy ships that attacked this combatant within the last few seconds.
+func recent_attackers() -> Array[Combatant]:
+	var now: float = _now()
+	var result: Array[Combatant] = []
+	for id: int in _attackers.keys():
+		if _attackers[id] < now:
+			continue
+		var who: Combatant = instance_from_id(id) as Combatant
+		if who != null and who.is_alive():
+			result.append(who)
+	return result
 
 
 func configure_layers() -> void:
@@ -127,3 +175,9 @@ func kill() -> void:
 	_dead = true
 	hp = 0.0
 	destroyed.emit(self)
+
+
+## Network replica only: the host says this combatant is gone. No signal, no side effects.
+func net_kill() -> void:
+	_dead = true
+	hp = 0.0

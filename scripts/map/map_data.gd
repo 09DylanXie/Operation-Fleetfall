@@ -17,6 +17,9 @@ const KIND_MINOR: int = 1
 const KIND_MAJOR: int = 2
 
 var size: Vector2 = Vector2(6400.0, 3600.0)
+## Generated maps are a round sea inscribed in `size` (a square); hand-built test maps
+## may stay rectangular.
+var circular: bool = false
 var seed_used: int = 0
 var cell_size: float = 32.0
 var clearance: float = 40.0
@@ -47,3 +50,20 @@ static func circle_polygon(radius: float, points: int = 14) -> PackedVector2Arra
 
 func center() -> Vector2:
 	return size * 0.5
+
+
+## Radius of the sea on a circular map.
+func radius() -> float:
+	return minf(size.x, size.y) * 0.5
+
+
+## True for points inside the playable sea, at least `margin` from its edge.
+func contains(point: Vector2, margin: float = 0.0) -> bool:
+	if circular:
+		return point.distance_to(center()) <= radius() - margin
+	return point.x >= margin and point.y >= margin and point.x <= size.x - margin and point.y <= size.y - margin
+
+
+## A random point of a circular map, no further than `reach` (0-1) of the way to the rim.
+func random_point(rng: RandomNumberGenerator, reach: float) -> Vector2:
+	return center() + Vector2.from_angle(rng.randf() * TAU) * sqrt(rng.randf()) * radius() * reach

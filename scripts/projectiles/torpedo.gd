@@ -9,7 +9,7 @@ var homing_turn_rate: float = 1.0
 
 
 func _physics_process(delta: float) -> void:
-	if match_ref.is_over:
+	if match_ref.is_over or match_ref.replica:
 		return
 	if homing_time_left > 0.0:
 		homing_time_left -= delta

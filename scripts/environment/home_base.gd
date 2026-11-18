@@ -60,13 +60,36 @@ func _process(_delta: float) -> void:
 
 func _draw() -> void:
 	var color: Color = Ship.TEAM_COLORS[team]
+	# Reef, beach and the fortress island under the dock.
+	draw_circle(Vector2.ZERO, radius + 16.0, Color(0.2, 0.55, 0.58, 0.5))
+	draw_arc(Vector2.ZERO, radius + 16.0, 0.0, TAU, 56, Color(0.85, 0.95, 0.97, 0.5), 1.5)
+	draw_circle(Vector2.ZERO, radius, Color(0.8, 0.73, 0.54))
+	draw_circle(Vector2.ZERO, radius * 0.86, Color(0.17, 0.34, 0.18))
 	DockArt.draw(self, shipyard, position, match_ref.local_team if match_ref != null else -1)
-	draw_circle(Vector2.ZERO, radius, Color(0.5, 0.48, 0.42))
-	draw_circle(Vector2.ZERO, radius * 0.8, Color(0.3, 0.31, 0.33))
-	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, color, 4.0 if selected else 2.5)
-	var s: float = radius * 0.34
-	draw_rect(Rect2(Vector2(-s, -s), Vector2(s * 2.0, s * 2.0)), color.darkened(0.25))
-	draw_rect(Rect2(Vector2(-s * 0.5, -s * 0.5), Vector2(s, s)), color.lightened(0.2))
+	# Octagonal concrete fort with a coastal gun at every other corner.
+	var wall: PackedVector2Array = PackedVector2Array()
+	for i: int in 8:
+		wall.append(Vector2.from_angle(PI / 8.0 + TAU * float(i) / 8.0) * radius * 0.68)
+	draw_colored_polygon(wall, Color(0.5, 0.5, 0.48))
+	var rim: PackedVector2Array = wall.duplicate()
+	rim.append(wall[0])
+	draw_polyline(rim, Color(0.32, 0.32, 0.31), 3.0)
+	for i: int in 4:
+		var a: float = PI / 8.0 + TAU * float(i * 2) / 8.0
+		var at: Vector2 = Vector2.from_angle(a) * radius * 0.68
+		draw_circle(at, 8.0, Color(0.4, 0.4, 0.38))
+		draw_line(at, at + Vector2.from_angle(a) * 14.0, Color(0.18, 0.18, 0.18), 2.5)
+		draw_circle(at, 5.0, Color(0.6, 0.61, 0.6))
+	# Headquarters block, radar and the team colours.
+	var s: float = radius * 0.3
+	draw_rect(Rect2(Vector2(-s, -s * 0.8), Vector2(s * 2.0, s * 1.6)), Color(0.36, 0.37, 0.36))
+	draw_rect(Rect2(Vector2(-s * 0.7, -s * 0.5), Vector2(s * 1.4, s * 1.0)), color.darkened(0.2))
+	draw_rect(Rect2(Vector2(-s * 0.35, -s * 0.25), Vector2(s * 0.7, s * 0.5)), color.lightened(0.2))
+	var radar: Vector2 = Vector2(radius * 0.38, -radius * 0.32)
+	draw_circle(radar, 4.0, Color(0.3, 0.3, 0.3))
+	var sweep: float = Time.get_ticks_msec() * 0.002
+	draw_line(radar - Vector2.from_angle(sweep) * 7.0, radar + Vector2.from_angle(sweep) * 7.0, Color(0.75, 0.77, 0.78), 2.0)
+	draw_arc(Vector2.ZERO, radius, 0.0, TAU, 56, color, 4.0 if selected else 2.5)
 	if shipyard != null:
 		for i: int in shipyard.max_tier:
 			var pip: Vector2 = Vector2(-6.0 + 12.0 * float(i), radius * 0.6)

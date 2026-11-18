@@ -44,6 +44,11 @@ extends Resource
 @export_group("Submarines")
 ## GDD: homing ping lasts 2 seconds.
 @export var sub_homing_time: float = 2.0
+## Submarine torpedoes fired at a Battleship or Super Battleship track it much more closely:
+## they home for this long, turning at `sub_battleship_homing_turn_deg`. Other targets get
+## the normal ping.
+@export var sub_battleship_homing_time: float = 6.0
+@export var sub_battleship_homing_turn_deg: float = 120.0
 ## GDD: firing reveals the submarine for 15 seconds.
 @export var sub_reveal_time: float = 15.0
 ## Range at which enemy Destroyers and Shipyards detect a submerged submarine.
@@ -69,8 +74,29 @@ extends Resource
 @export var minor_garrison_hp: float = 2000.0
 @export var major_garrison_hp: float = 4000.0
 @export var garrison_armor: float = 0.0
+## A garrison on an island with a shipyard of at least this tier heals once it has not been
+## hit for `garrison_regen_delay` seconds, at `garrison_regen_rate` of its max HP per second.
+@export var garrison_regen_min_tier: int = 2
+@export var garrison_regen_delay: float = 5.0
+@export var garrison_regen_rate: float = 0.05
 ## GDD: Tier 3 shipyards require a Deep Water (Major) island.
 @export var major_shipyard_max_tier: int = 3
+
+@export_group("Island Defenses")
+## A Major island with a Tier 3 shipyard keeps an air base: up to this many HE bomber
+## squadrons, one launched every `air_base_interval` seconds, at enemy ships that have fired
+## on the island within `air_base_range` of it.
+@export var air_base_squadrons: int = 3
+@export var air_base_interval: float = 10.0
+@export var air_base_range: float = 700.0
+## Radar the owner of such an island can buy: island spotting becomes a Destroyer's.
+@export var radar_gold_cost: int = 200
+@export var radar_steel_cost: int = 150
+@export var radar_spotting: float = 720.0
+
+@export_group("Resource Ships")
+## A Resource Ship stopped within this distance of an island's shore mines it.
+@export var mining_reach: float = 160.0
 
 @export_group("Shipyards")
 ## Cost to build/upgrade to tier 1, 2, 3 (index = tier - 1).

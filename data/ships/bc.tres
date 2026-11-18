@@ -1,0 +1,53 @@
+[gd_resource type="Resource" script_class="ShipStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/resources/ship_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ship_class = 6
+code = "BC"
+display_name = "Battlecruiser"
+gold_cost = 650
+steel_cost = 450
+build_time = 37.5
+required_shipyard_tier = 3
+speed_factor = 0.513
+turn_rate_deg = 32.0
+base_armor = 0.2
+max_hp = 4000.0
+hull_length = 104.0
+hull_width = 21.0
+shallow_draft = false
+spotting_range = 240.0
+is_submarine = false
+detects_submarines = false
+gun_mounts = 4
+shells_per_mount = 4
+shell_damage = 80.0
+shell_speed = 420.0
+gun_range = 880.0
+fire_interval = 8.0
+dispersion_deg = 1.0
+can_target_submarines = false
+penetration = 3.0
+mount_offsets = PackedFloat32Array(30, 17, -22, -35)
+mount_facings_deg = PackedFloat32Array(0, 0, 180, 180)
+mount_arc_half_deg = 150.0
+secondary_mounts = 0
+secondary_shell_damage = 0.0
+secondary_shell_speed = 300.0
+secondary_range = 0.0
+secondary_interval = 8.0
+secondary_dispersion_deg = 0.6
+secondary_offsets = PackedVector2Array()
+secondary_facings_deg = PackedFloat32Array()
+secondary_arc_half_deg = 100.0
+torpedo_mode = 0
+torpedoes_per_launch = 0
+torpedo_interval = 30.0
+torpedo_range = 0.0
+torpedo_spread_deg = 0.0
+squadrons_per_launch = 0
+plane_interval = 25.0
+plane_range = 0.0
+aa_kill_chance = 0.2
