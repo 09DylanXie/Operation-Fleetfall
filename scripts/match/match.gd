@@ -811,6 +811,9 @@ func execute_command(team: int, cmd: Dictionary) -> String:
 				return "Radar can only be built on a Major island"
 			var problem: String = site.try_buy_radar(team)
 			return problem if problem != "" else "Radar built on %s" % yard.site_name
+		"sandbox":
+			var on: bool = economy.toggle_infinite(team)
+			return "Sandbox: infinite resources %s" % ("ON" if on else "OFF")
 		"rally":
 			var yard: Shipyard = _cmd_yard(team, cmd)
 			var point: Vector2 = _cmd_point(cmd)

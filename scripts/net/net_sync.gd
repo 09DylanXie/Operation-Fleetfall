@@ -14,7 +14,7 @@ const YARD_FIELDS: int = 10
 const ORDER_FIELDS: int = 7
 ## Keys compared by differences(): everything but the one-off effect events.
 const STATE_KEYS: Array[String] = ["f", "t", "gold", "steel", "tick", "elim", "over", "win", "ships",
-	"bases", "isl", "gar", "yards", "wx", "proj", "built"]
+	"bases", "isl", "gar", "yards", "wx", "proj", "built", "inf"]
 
 
 static func build(m: Match) -> Dictionary:
@@ -72,6 +72,7 @@ static func build(m: Match) -> Dictionary:
 		"tick": m.economy.time_to_tick, "elim": elim, "over": m.is_over, "win": m.winner,
 		"ships": ships, "bases": bases, "isl": isl, "gar": gar, "yards": yards, "wx": wx, "proj": proj,
 		"built": PackedInt32Array(m.ships_launched),
+		"inf": PackedByteArray(m.economy.infinite.map(func(on: bool) -> int: return 1 if on else 0)),
 		"fx": m.take_effect_log() if m.record_effects else PackedFloat32Array(),
 	}
 
@@ -88,6 +89,9 @@ static func apply(m: Match, data: Dictionary) -> void:
 	var built: PackedInt32Array = data.get("built", PackedInt32Array())
 	if built.size() == m.ships_launched.size():
 		m.ships_launched = built.duplicate()
+	var inf: PackedByteArray = data.get("inf", PackedByteArray())
+	for team: int in mini(inf.size(), m.economy.infinite.size()):
+		m.economy.infinite[team] = inf[team] == 1
 	_apply_ships(m, data.get("ships", PackedFloat32Array()))
 	var bases: PackedFloat32Array = data.get("bases", PackedFloat32Array())
 	for i: int in mini(bases.size(), m.bases.size()):

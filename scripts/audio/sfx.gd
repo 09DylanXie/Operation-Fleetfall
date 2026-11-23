@@ -1,20 +1,20 @@
 extends Node
 ## Sound effects and ambience (autoload `Sfx`). Every sound is synthesised in code when the
-## game starts (on a worker thread, so there are no audio files), with its own random number
+## game starts (on a worker thread by `synth_all`, so there are no audio files), with its own random number
 ## generator: sound is cosmetic and never touches `Match.rng` or game state. Nothing is made
 ## or played when running headless (tests, dedicated hosts).
 
-const RATE: int = 22050
-const POOL_SIZE: int = 24
+const RATE: int = 32000
+const POOL_SIZE: int = 32
 const UI_POOL_SIZE: int = 4
 const LISTEN_DISTANCE: float = 2400.0
 
 ## Loudness (dB) and shortest gap between two plays (seconds) for each sound.
 const VOLUME: Dictionary[String, float] = {
-	"gun_small": -9.0, "gun_mid": -7.0, "gun_big": -4.0, "splash": -15.0, "hit": -9.0,
-	"torpedo_launch": -10.0, "torpedo_hit": -3.0, "explosion": -1.0, "depth_charge": -6.0,
-	"bomb": -5.0, "plane": -15.0, "flak": -10.0, "ui_click": -10.0, "ui_hover": -20.0,
-	"build_done": -8.0, "capture": -7.0, "alert": -8.0,
+	"gun_small": -10.0, "gun_mid": -8.0, "gun_big": -5.0, "splash": -14.0, "hit": -9.0,
+	"torpedo_launch": -11.0, "torpedo_hit": -4.0, "explosion": -2.0, "depth_charge": -6.0,
+	"bomb": -5.0, "plane": -13.0, "flak": -11.0, "ui_click": -12.0, "ui_hover": -22.0,
+	"build_done": -10.0, "capture": -10.0, "alert": -10.0,
 }
 const MIN_GAP: Dictionary[String, float] = {
 	"gun_small": 0.04, "gun_mid": 0.05, "gun_big": 0.08, "splash": 0.05, "hit": 0.05,
@@ -146,7 +146,7 @@ func _process(delta: float) -> void:
 				continue
 			var d: float = front.position.distance_to(at)
 			storm = maxf(storm, clampf(1.0 - (d - front.radius * 0.6) / (front.radius * 0.8), 0.0, 1.0))
-	if storm > 0.01:
+	if storm > 0.01 and _streams.has("wind"):
 		if not _wind.playing:
 			_wind.stream = _streams["wind"]
 			_wind.volume_db = -40.0
@@ -159,36 +159,52 @@ func _process(delta: float) -> void:
 
 
 # --- Synthesis --------------------------------------------------------------
+# Every sound is built from a few physical layers: the sharp blast front (bright noise, a few
+# milliseconds), the pressure thump (a falling sine), the body (noise through a closing
+# low-pass), a rolling low rumble with a random tremble, and an outdoor reverb with a far echo.
+# Metal rings with inharmonic modes; water is a band-passed column of noise, falling spray
+# and droplet pings. Layers are soft-clipped together for weight.
+
+const FILTER_LP: int = 0
+const FILTER_BP: int = 1
+const FILTER_HP: int = 2
+
 
 func _bake_all() -> void:
+	synth_all(func(sound: String, wav: AudioStreamWAV) -> void: _on_baked.call_deferred(sound, wav))
+
+
+func _on_baked(sound: String, wav: AudioStreamWAV) -> void:
+	_streams[sound] = wav
+
+
+## Builds every sound and hands each to `publish(name, wav)` as soon as it is ready, interface
+## sounds first so menus have them at once. Pure: no scene access, safe on a worker thread.
+func synth_all(publish: Callable) -> void:
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 90210
-	var baked: Dictionary[String, AudioStreamWAV] = {}
-	baked["gun_small"] = _wav(_gun(rng, 0.45, 0.30, 140.0, 0.06), 0.9)
-	baked["gun_mid"] = _wav(_gun(rng, 0.8, 0.18, 95.0, 0.12), 0.95)
-	baked["gun_big"] = _wav(_gun(rng, 1.6, 0.09, 55.0, 0.28), 1.0)
-	baked["splash"] = _wav(_splash(rng, 0.6), 0.8)
-	baked["hit"] = _wav(_hit(rng), 0.9)
-	baked["explosion"] = _wav(_boom(rng, 2.4, 0.05, 45.0, 0.7, true), 1.0)
-	baked["bomb"] = _wav(_boom(rng, 1.2, 0.09, 60.0, 0.35, false), 1.0)
-	baked["torpedo_hit"] = _wav(_torpedo_hit(rng), 1.0)
-	baked["depth_charge"] = _wav(_depth_charge(rng), 1.0)
-	baked["torpedo_launch"] = _wav(_torpedo_launch(rng), 0.8)
-	baked["plane"] = _wav(_plane(rng), 0.7)
-	baked["flak"] = _wav(_flak(rng), 0.8)
-	baked["ui_click"] = _wav(_blip(0.07, 1250.0, 700.0, 0.015), 0.7)
-	baked["ui_hover"] = _wav(_blip(0.045, 1900.0, 1700.0, 0.01), 0.5)
-	baked["build_done"] = _wav(_chime([659.25, 987.77], 0.16, 0.6), 0.7)
-	baked["capture"] = _wav(_chime([523.25, 659.25, 783.99, 1046.5], 0.11, 0.7), 0.7)
-	baked["alert"] = _wav(_alert(), 0.6)
-	baked["ocean"] = _wav(_ocean_loop(rng), 0.8, true)
-	baked["wind"] = _wav(_wind_loop(rng), 0.8, true)
-	_on_baked.call_deferred(baked)
+	publish.call("ui_click", _wav(_ui_click(rng), 0.55))
+	publish.call("ui_hover", _wav(_ui_hover(rng), 0.3))
+	publish.call("build_done", _wav(_ships_bell(rng), 0.7))
+	publish.call("capture", _wav(_bosuns_call(rng), 0.6))
+	publish.call("alert", _wav(_general_alarm(rng), 0.6))
+	publish.call("gun_small", _wav(_gun(rng, 0), 1.0))
+	publish.call("gun_mid", _wav(_gun(rng, 1), 1.0))
+	publish.call("gun_big", _wav(_gun(rng, 2), 1.0))
+	publish.call("splash", _wav(_splash(rng), 0.85))
+	publish.call("hit", _wav(_hit(rng), 0.95))
+	publish.call("bomb", _wav(_bomb(rng), 1.0))
+	publish.call("flak", _wav(_flak(rng), 0.9))
+	publish.call("torpedo_launch", _wav(_torpedo_launch(rng), 0.85))
+	publish.call("torpedo_hit", _wav(_torpedo_hit(rng), 1.0))
+	publish.call("depth_charge", _wav(_depth_charge(rng), 1.0))
+	publish.call("explosion", _wav(_explosion(rng), 1.0))
+	publish.call("plane", _wav(_plane(rng), 0.8))
+	publish.call("wind", _wav(_wind_loop(rng), 0.8, true))
+	publish.call("ocean", _wav(_ocean_loop(rng), 0.8, true))
 
 
-func _on_baked(baked: Dictionary[String, AudioStreamWAV]) -> void:
-	_streams = baked
-
+# --- Building blocks --------------------------------------------------------
 
 func _buf(seconds: float) -> PackedFloat32Array:
 	var buf: PackedFloat32Array = PackedFloat32Array()
@@ -202,193 +218,445 @@ static func _env(t: float, attack: float, tau: float) -> float:
 	return exp(-(t - attack) / tau)
 
 
-## Filtered noise added to `buf`: `lp` sets the brightness (0-1, one-pole low-pass); `high`
-## subtracts the low-passed part for hiss.
-func _add_noise(rng: RandomNumberGenerator, buf: PackedFloat32Array, start: float, lp: float,
-		attack: float, tau: float, amp: float, high: bool = false) -> void:
+## Noise mixed into `buf` from `start` for `length` seconds through a state-variable filter
+## (FILTER_LP / BP / HP) whose cutoff glides exponentially from `c0` to `c1` Hz; `q` is the
+## damping (lower rings more). Low and band outputs are gain-matched so `amp` means about the
+## same loudness at any cutoff. The level rises over `attack`, decays with time constant
+## `decay`, and `rough` (0-1) makes it tremble at random about `rate` times a second, like
+## rolling thunder or breaking surf.
+func _noise(rng: RandomNumberGenerator, buf: PackedFloat32Array, start: float, length: float,
+		c0: float, c1: float, mode: int, q: float, attack: float, decay: float, amp: float,
+		rough: float = 0.0, rate: float = 14.0) -> void:
+	var first: int = int(start * RATE)
+	var count: int = mini(int(length * RATE), buf.size() - first)
+	if count <= 0:
+		return
+	var step: float = pow(c1 / c0, 1.0 / float(count))
+	var fc: float = c0
 	var low: float = 0.0
-	var low2: float = 0.0
-	var first: int = int(start * RATE)
-	for i: int in range(first, buf.size()):
-		var t: float = float(i - first) / RATE
-		var e: float = _env(t, attack, tau)
-		if e < 0.0005 and t > attack:
+	var band: float = 0.0
+	var span: int = maxi(1, int(float(RATE) / rate))
+	var mod_a: float = rng.randf()
+	var mod_b: float = rng.randf()
+	var fade: int = maxi(1, mini(count / 8, RATE / 25))
+	var top: float = float(RATE) / 7.0
+	for i: int in count:
+		var t: float = float(i) / RATE
+		var e: float = _env(t, attack, decay)
+		if e < 0.0003 and t > attack:
 			break
+		var cut: float = minf(fc, top)
+		fc *= step
+		var f: float = 2.0 * sin(PI * cut / RATE)
 		var n: float = rng.randf() * 2.0 - 1.0
-		low += lp * (n - low)
-		low2 += lp * (low - low2)
-		var v: float = (n - low2) if high else low2
-		buf[i] += v * e * amp
+		var high: float = n - low - q * band
+		band += f * high
+		low += f * band
+		var v: float = high
+		if mode == FILTER_LP:
+			v = low * sqrt(RATE * 0.5 / maxf(cut, 20.0)) * 0.6
+		elif mode == FILTER_BP:
+			v = band * sqrt(RATE * 0.5 / maxf(cut, 20.0)) * 0.6 * q
+		if rough > 0.0:
+			if i % span == 0:
+				mod_a = mod_b
+				mod_b = rng.randf()
+			var m: float = lerpf(mod_a, mod_b, float(i % span) / span)
+			e *= 1.0 - rough + rough * 2.0 * m * m
+		if i > count - fade:
+			e *= float(count - i) / fade
+		buf[first + i] += v * e * amp
 
 
-## A pitched thump or tone, gliding from `f0` to `f1`.
-func _add_tone(buf: PackedFloat32Array, start: float, f0: float, f1: float, attack: float,
-		tau: float, amp: float, square: bool = false) -> void:
-	var phase: float = 0.0
+## A sine mixed into `buf`, pitch falling from `f0` toward `f1` with time constant `glide`
+## (a pressure thump), with an optional touch of second harmonic.
+func _tone(buf: PackedFloat32Array, start: float, f0: float, f1: float, glide: float, attack: float,
+		decay: float, amp: float, harm: float = 0.0) -> void:
 	var first: int = int(start * RATE)
-	var span: float = maxf(tau * 4.0, 0.01)
-	for i: int in range(first, buf.size()):
-		var t: float = float(i - first) / RATE
-		var e: float = _env(t, attack, tau)
-		if e < 0.0005 and t > attack:
-			break
-		var f: float = lerpf(f0, f1, clampf(t / span, 0.0, 1.0))
-		phase += TAU * f / RATE
-		var s: float = sin(phase)
-		if square:
-			s = clampf(s * 3.0, -1.0, 1.0) * 0.6 + s * 0.4
-		buf[i] += s * e * amp
+	var count: int = mini(int((attack + decay * 7.0) * RATE), buf.size() - first)
+	var phase: float = 0.0
+	for i: int in count:
+		var t: float = float(i) / RATE
+		phase += TAU * (f1 + (f0 - f1) * exp(-t / glide)) / RATE
+		var v: float = sin(phase)
+		if harm > 0.0:
+			v += harm * sin(2.0 * phase)
+		buf[first + i] += v * _env(t, attack, decay) * amp
 
 
-func _gun(rng: RandomNumberGenerator, length: float, lp: float, thump: float, tau: float) -> PackedFloat32Array:
+## Struck metal: inharmonic partials of `base`, each with its own level and decay.
+func _modes(buf: PackedFloat32Array, start: float, base: float, ratios: PackedFloat32Array,
+		levels: PackedFloat32Array, decays: PackedFloat32Array, amp: float) -> void:
+	for k: int in ratios.size():
+		_tone(buf, start, base * ratios[k], base * ratios[k], 1.0, 0.0008, decays[k], amp * levels[k])
+
+
+## `count` tiny pitched pings between `from` and `to` seconds: droplets, bubbles (rise > 1),
+## debris. Pitch is spread evenly on a log scale between `f_lo` and `f_hi`.
+func _grains(rng: RandomNumberGenerator, buf: PackedFloat32Array, from: float, to: float, count: int,
+		f_lo: float, f_hi: float, rise: float, decay: float, amp_lo: float, amp_hi: float) -> void:
+	for k: int in count:
+		var f: float = f_lo * pow(f_hi / f_lo, rng.randf())
+		_tone(buf, rng.randf_range(from, to), f, f * rise, decay * 1.5, 0.0005,
+			decay * rng.randf_range(0.6, 1.4), rng.randf_range(amp_lo, amp_hi))
+
+
+## `count` short broadband ticks between `from` and `to`: crackle, rattling debris.
+func _ticks(rng: RandomNumberGenerator, buf: PackedFloat32Array, from: float, to: float, count: int,
+		cutoff: float, decay: float, amp_lo: float, amp_hi: float) -> void:
+	for k: int in count:
+		_noise(rng, buf, rng.randf_range(from, to), decay * 8.0, cutoff, cutoff * 0.6, FILTER_BP, 0.7,
+			0.0003, decay * rng.randf_range(0.6, 1.5), rng.randf_range(amp_lo, amp_hi))
+
+
+## The blast front of a gun or explosion: a few milliseconds of very bright noise.
+func _crack(rng: RandomNumberGenerator, buf: PackedFloat32Array, start: float, decay: float, amp: float) -> void:
+	_noise(rng, buf, start, decay * 10.0, 9500.0, 2500.0, FILTER_LP, 0.7, 0.0006, decay, amp)
+
+
+## Soft-clips the sound after normalising it: louder body, tamed peaks - the weight of a blast.
+func _drive(buf: PackedFloat32Array, k: float) -> void:
+	var top: float = 0.0001
+	for v: float in buf:
+		top = maxf(top, absf(v))
+	var norm: float = tanh(k)
+	for i: int in buf.size():
+		buf[i] = tanh(buf[i] / top * k) / norm
+
+
+## Two-pole low-pass in place.
+func _lowpass(buf: PackedFloat32Array, hz: float) -> void:
+	var a: float = 1.0 - exp(-TAU * hz / RATE)
+	var l1: float = 0.0
+	var l2: float = 0.0
+	for i: int in buf.size():
+		l1 += a * (buf[i] - l1)
+		l2 += a * (l1 - l2)
+		buf[i] = l2
+
+
+## Open-sea reverb: a dark diffuse tail (damped comb filters into all-passes) after a short
+## pre-delay, plus a faint low-passed far echo, as off a distant shore. Returns the sound
+## with the tail added, `tail` seconds longer.
+func _reverb(dry: PackedFloat32Array, tail: float, decay: float, damp: float, wet: float,
+		echo: float = 0.0) -> PackedFloat32Array:
+	var n: int = dry.size() + int(tail * RATE)
+	var verb: PackedFloat32Array = PackedFloat32Array()
+	verb.resize(n)
+	var pre: int = int(0.025 * RATE)
+	for delay_ms: float in [25.3, 28.9, 32.2, 35.3, 37.9]:
+		var d: int = int(delay_ms * 0.001 * RATE)
+		var g: float = pow(10.0, -3.0 * (float(d) / RATE) / decay)
+		var line: PackedFloat32Array = PackedFloat32Array()
+		line.resize(d)
+		var idx: int = 0
+		var store: float = 0.0
+		for i: int in n:
+			var j: int = i - pre
+			var x: float = dry[j] if j >= 0 and j < dry.size() else 0.0
+			var y: float = line[idx]
+			store = y * (1.0 - damp) + store * damp
+			line[idx] = x + store * g
+			idx += 1
+			if idx == d:
+				idx = 0
+			verb[i] += y * 0.2
+	for delay_ms: float in [12.6, 7.7, 5.1]:
+		var d: int = int(delay_ms * 0.001 * RATE)
+		var line: PackedFloat32Array = PackedFloat32Array()
+		line.resize(d)
+		var idx: int = 0
+		for i: int in n:
+			var x: float = verb[i]
+			var b: float = line[idx]
+			line[idx] = x + b * 0.5
+			verb[i] = b - x
+			idx += 1
+			if idx == d:
+				idx = 0
+	var out: PackedFloat32Array = PackedFloat32Array()
+	out.resize(n)
+	for i: int in n:
+		out[i] = (dry[i] if i < dry.size() else 0.0) + verb[i] * wet
+	if echo > 0.0:
+		var e: int = int(0.38 * RATE)
+		var lp: float = 0.0
+		for i: int in range(e, n):
+			lp += 0.12 * (out[i - e] - lp)
+			out[i] += lp * echo
+	return out
+
+
+# --- Weapons ----------------------------------------------------------------
+
+## Naval guns by calibre: 0 = destroyer / secondary, 1 = cruiser, 2 = battleship. A bigger
+## gun has a lower, longer thump, a darker body and a longer roll across the water.
+func _gun(rng: RandomNumberGenerator, calibre: int) -> PackedFloat32Array:
+	var c: float = float(calibre) / 2.0
+	var length: float = lerpf(1.1, 3.2, c)
 	var buf: PackedFloat32Array = _buf(length)
-	_add_noise(rng, buf, 0.0, minf(0.9, lp * 2.5), 0.002, 0.02, 0.9)
-	_add_noise(rng, buf, 0.0, lp, 0.004, tau, 1.0)
-	_add_tone(buf, 0.0, thump * 1.6, thump * 0.7, 0.003, tau * 0.8, 0.9)
-	_add_noise(rng, buf, 0.05, lp * 0.5, 0.05, tau * 2.0, 0.35)
-	return buf
+	_crack(rng, buf, 0.0, lerpf(0.005, 0.012, c), 1.0)
+	_noise(rng, buf, 0.0, length * 0.5, lerpf(2600.0, 950.0, c), lerpf(420.0, 120.0, c), FILTER_LP, 0.8,
+		0.002, lerpf(0.05, 0.18, c), 1.0)
+	_tone(buf, 0.0, lerpf(190.0, 75.0, c), lerpf(90.0, 32.0, c), lerpf(0.04, 0.12, c), 0.002,
+		lerpf(0.06, 0.22, c), lerpf(0.7, 1.3, c), 0.3)
+	_noise(rng, buf, 0.03, length, lerpf(420.0, 170.0, c), lerpf(150.0, 60.0, c), FILTER_LP, 0.9,
+		lerpf(0.03, 0.07, c), lerpf(0.22, 0.9, c), lerpf(0.4, 0.85, c), 0.7, 9.0)
+	_drive(buf, lerpf(1.8, 2.4, c))
+	return _reverb(buf, lerpf(1.0, 2.2, c), lerpf(1.2, 2.4, c), 0.55, lerpf(0.28, 0.36, c), lerpf(0.15, 0.28, c))
 
 
-func _splash(rng: RandomNumberGenerator, length: float) -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(length)
-	_add_noise(rng, buf, 0.0, 0.35, 0.015, 0.12, 0.8, true)
-	_add_noise(rng, buf, 0.03, 0.12, 0.04, 0.16, 0.6)
-	_add_tone(buf, 0.0, 180.0, 90.0, 0.005, 0.05, 0.3)
-	return buf
-
-
-func _hit(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(0.6)
-	_add_noise(rng, buf, 0.0, 0.5, 0.001, 0.03, 0.8)
-	_add_tone(buf, 0.0, 820.0, 760.0, 0.001, 0.09, 0.35)
-	_add_tone(buf, 0.0, 1370.0, 1290.0, 0.001, 0.06, 0.25)
-	_add_tone(buf, 0.0, 120.0, 70.0, 0.002, 0.08, 0.7)
-	_add_noise(rng, buf, 0.02, 0.15, 0.01, 0.12, 0.5)
-	return buf
-
-
-func _boom(rng: RandomNumberGenerator, length: float, lp: float, thump: float, tau: float,
-		crackle: bool) -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(length)
-	_add_noise(rng, buf, 0.0, lp * 3.0, 0.002, 0.05, 0.8)
-	_add_noise(rng, buf, 0.0, lp, 0.01, tau, 1.0)
-	_add_tone(buf, 0.0, thump * 1.8, thump * 0.5, 0.004, tau * 0.6, 1.0)
-	if crackle:
-		for i: int in 14:
-			_add_noise(rng, buf, 0.15 + rng.randf() * (length * 0.6), 0.6, 0.001, 0.015, 0.35)
-		_add_tone(buf, 0.35, 70.0, 35.0, 0.02, 0.35, 0.5)
-	return buf
-
-
-func _torpedo_hit(rng: RandomNumberGenerator) -> PackedFloat32Array:
+## A shell falling short: the plunge, a column of white water, the spray coming down.
+func _splash(rng: RandomNumberGenerator) -> PackedFloat32Array:
 	var buf: PackedFloat32Array = _buf(1.8)
-	_add_tone(buf, 0.0, 70.0, 32.0, 0.01, 0.35, 1.0)
-	_add_noise(rng, buf, 0.0, 0.05, 0.01, 0.3, 0.9)
-	_add_noise(rng, buf, 0.12, 0.3, 0.08, 0.45, 0.55, true)
-	_add_noise(rng, buf, 0.0, 0.4, 0.001, 0.04, 0.5)
-	return buf
+	_tone(buf, 0.0, 160.0, 60.0, 0.03, 0.002, 0.05, 0.7)
+	_noise(rng, buf, 0.0, 0.15, 2500.0, 800.0, FILTER_LP, 0.8, 0.001, 0.02, 0.6)
+	_noise(rng, buf, 0.01, 0.6, 500.0, 3000.0, FILTER_BP, 0.9, 0.05, 0.18, 0.9)
+	_noise(rng, buf, 0.25, 1.5, 2500.0, 1700.0, FILTER_BP, 1.2, 0.12, 0.35, 0.55, 0.8, 25.0)
+	_grains(rng, buf, 0.3, 1.4, 30, 900.0, 2600.0, 1.6, 0.012, 0.05, 0.2)
+	_drive(buf, 1.3)
+	return _reverb(buf, 0.8, 0.9, 0.4, 0.15)
 
 
-func _depth_charge(rng: RandomNumberGenerator) -> PackedFloat32Array:
+## A shell striking armour: the clang of the plate, the burst inside, rattling debris.
+func _hit(rng: RandomNumberGenerator) -> PackedFloat32Array:
 	var buf: PackedFloat32Array = _buf(1.4)
-	_add_tone(buf, 0.0, 55.0, 28.0, 0.03, 0.3, 1.0)
-	_add_noise(rng, buf, 0.0, 0.025, 0.03, 0.35, 0.9)
-	_add_noise(rng, buf, 0.25, 0.25, 0.1, 0.3, 0.35, true)
-	return buf
+	_crack(rng, buf, 0.0, 0.004, 1.0)
+	_modes(buf, 0.0, rng.randf_range(210.0, 260.0), PackedFloat32Array([1.0, 1.58, 2.31, 2.76, 3.9, 5.4]),
+		PackedFloat32Array([0.5, 0.4, 0.35, 0.3, 0.2, 0.15]),
+		PackedFloat32Array([0.35, 0.25, 0.18, 0.15, 0.08, 0.05]), 0.6)
+	_noise(rng, buf, 0.012, 0.7, 1800.0, 300.0, FILTER_LP, 0.8, 0.002, 0.09, 0.9)
+	_tone(buf, 0.012, 110.0, 50.0, 0.05, 0.002, 0.09, 0.8)
+	_ticks(rng, buf, 0.05, 0.6, 10, 4000.0, 0.004, 0.05, 0.18)
+	_drive(buf, 1.8)
+	return _reverb(buf, 1.0, 1.2, 0.5, 0.25, 0.12)
 
 
+## An HE bomb on a deck: a sharp blast, a fireball's roar and a low roll.
+func _bomb(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(2.6)
+	_crack(rng, buf, 0.0, 0.01, 1.1)
+	_tone(buf, 0.0, 85.0, 35.0, 0.08, 0.002, 0.2, 1.2, 0.25)
+	_noise(rng, buf, 0.0, 2.0, 2000.0, 250.0, FILTER_LP, 0.8, 0.005, 0.35, 1.0, 0.4)
+	_noise(rng, buf, 0.03, 2.5, 200.0, 70.0, FILTER_LP, 0.9, 0.05, 0.7, 0.6, 0.7, 8.0)
+	_ticks(rng, buf, 0.1, 1.2, 8, 3500.0, 0.005, 0.05, 0.2)
+	_drive(buf, 2.0)
+	return _reverb(buf, 1.8, 2.0, 0.55, 0.3, 0.25)
+
+
+## Anti-aircraft fire: the thump of the guns and the sharp cracks of the bursts overhead.
+func _flak(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(2.0)
+	for k: int in 5:
+		var at: float = k * 0.3 + rng.randf() * 0.06
+		_tone(buf, at, 130.0, 65.0, 0.03, 0.002, 0.05, 0.7)
+		_noise(rng, buf, at, 0.3, 2500.0, 500.0, FILTER_LP, 0.8, 0.001, 0.03, 0.7)
+		var burst: float = at + 0.12 + rng.randf() * 0.1
+		var a: float = rng.randf_range(0.6, 1.0)
+		_crack(rng, buf, burst, 0.006, 0.9 * a)
+		_noise(rng, buf, burst, 0.5, 1200.0, 300.0, FILTER_LP, 0.8, 0.001, 0.08, 0.5 * a)
+		_tone(buf, burst, 90.0, 45.0, 0.04, 0.002, 0.06, 0.4 * a)
+	_drive(buf, 1.8)
+	return _reverb(buf, 1.2, 1.6, 0.5, 0.35, 0.2)
+
+
+## A torpedo leaving its tube: a puff of compressed air, the splash, the screws biting.
 func _torpedo_launch(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(0.7)
-	_add_noise(rng, buf, 0.0, 0.08, 0.004, 0.05, 0.6)
-	_add_noise(rng, buf, 0.03, 0.3, 0.08, 0.18, 0.7, true)
-	_add_tone(buf, 0.0, 260.0, 140.0, 0.003, 0.06, 0.4)
+	var buf: PackedFloat32Array = _buf(1.6)
+	_noise(rng, buf, 0.0, 0.4, 900.0, 300.0, FILTER_BP, 0.7, 0.003, 0.06, 1.0)
+	_tone(buf, 0.0, 140.0, 70.0, 0.04, 0.002, 0.05, 0.7)
+	_noise(rng, buf, 0.0, 0.3, 3500.0, 2500.0, FILTER_BP, 1.0, 0.005, 0.08, 0.4)
+	_tone(buf, 0.3, 150.0, 70.0, 0.03, 0.002, 0.04, 0.5)
+	_noise(rng, buf, 0.3, 0.6, 600.0, 2500.0, FILTER_BP, 0.9, 0.04, 0.15, 0.7)
+	_noise(rng, buf, 0.45, 1.0, 2400.0, 1700.0, FILTER_BP, 1.1, 0.08, 0.25, 0.35, 0.8, 25.0)
+	_grains(rng, buf, 0.45, 1.2, 14, 900.0, 2400.0, 1.6, 0.01, 0.04, 0.14)
+	return _reverb(buf, 0.6, 0.8, 0.4, 0.15)
+
+
+## A torpedo against a hull: a heavy muffled blast below the waterline, the hull ringing,
+## then the water column climbing and crashing back down.
+func _torpedo_hit(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(3.6)
+	_tone(buf, 0.0, 55.0, 22.0, 0.2, 0.008, 0.4, 1.4, 0.2)
+	_noise(rng, buf, 0.0, 1.5, 300.0, 90.0, FILTER_LP, 0.9, 0.006, 0.4, 1.0, 0.3)
+	_modes(buf, 0.0, 95.0, PackedFloat32Array([1.0, 1.47, 2.09, 2.56]),
+		PackedFloat32Array([0.5, 0.35, 0.25, 0.2]), PackedFloat32Array([0.6, 0.4, 0.3, 0.2]), 0.35)
+	_noise(rng, buf, 0.0, 0.9, 700.0, 160.0, FILTER_LP, 0.8, 0.004, 0.12, 0.7)
+	_noise(rng, buf, 0.12, 1.0, 350.0, 3200.0, FILTER_BP, 0.8, 0.18, 0.35, 1.3, 0.3)
+	_noise(rng, buf, 0.7, 2.6, 2200.0, 1500.0, FILTER_BP, 1.1, 0.3, 0.6, 0.8, 0.8, 25.0)
+	_grains(rng, buf, 0.9, 3.0, 40, 800.0, 2600.0, 1.6, 0.012, 0.04, 0.18)
+	_drive(buf, 1.7)
+	return _reverb(buf, 1.8, 2.2, 0.55, 0.3, 0.25)
+
+
+## A depth charge: a deep thud felt more than heard, then the dome of water boiling up.
+func _depth_charge(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(3.4)
+	_tone(buf, 0.0, 42.0, 20.0, 0.25, 0.02, 0.45, 1.4, 0.25)
+	_noise(rng, buf, 0.0, 1.6, 180.0, 70.0, FILTER_LP, 0.9, 0.02, 0.5, 1.0, 0.3)
+	_noise(rng, buf, 0.0, 0.8, 400.0, 120.0, FILTER_LP, 0.8, 0.02, 0.15, 0.5)
+	_noise(rng, buf, 0.55, 1.4, 250.0, 2400.0, FILTER_BP, 0.9, 0.25, 0.4, 1.1, 0.4)
+	_grains(rng, buf, 0.5, 1.8, 30, 120.0, 420.0, 1.8, 0.025, 0.08, 0.3)
+	_noise(rng, buf, 1.0, 2.2, 2000.0, 1400.0, FILTER_BP, 1.1, 0.25, 0.5, 0.4, 0.8, 25.0)
+	_drive(buf, 1.6)
+	return _reverb(buf, 1.5, 1.8, 0.55, 0.25, 0.2)
+
+
+## A ship blowing up: the blast, the fireball, a long roll, secondary detonations and the
+## crackle of cooking-off ammunition.
+func _explosion(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(5.0)
+	_crack(rng, buf, 0.0, 0.015, 1.2)
+	_tone(buf, 0.0, 60.0, 24.0, 0.25, 0.004, 0.45, 1.4, 0.3)
+	_noise(rng, buf, 0.0, 3.5, 1600.0, 180.0, FILTER_LP, 0.8, 0.02, 0.9, 1.4, 0.5)
+	_noise(rng, buf, 0.05, 5.0, 140.0, 55.0, FILTER_LP, 0.9, 0.1, 1.8, 1.0, 0.8, 6.0)
+	for k: int in 4:
+		var at: float = rng.randf_range(0.5, 3.0)
+		var a: float = rng.randf_range(0.3, 0.7)
+		_tone(buf, at, 80.0, 35.0, 0.1, 0.003, 0.15, a)
+		_noise(rng, buf, at, 0.8, 1200.0, 250.0, FILTER_LP, 0.8, 0.003, 0.15, a * 0.8)
+	_ticks(rng, buf, 0.3, 4.0, 25, 3000.0, 0.004, 0.1, 0.35)
+	_drive(buf, 2.0)
+	return _reverb(buf, 2.5, 3.0, 0.6, 0.35, 0.3)
+
+
+## A squadron passing: three radial engines slightly out of step (their beat is the
+## familiar throb), each a train of exhaust pulses, pitch dropping as they pass (Doppler).
+func _plane(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var length: float = 3.4
+	var buf: PackedFloat32Array = _buf(length)
+	for base: float in [86.0, 87.3, 84.9]:
+		var phase: float = rng.randf()
+		var gain: float = 1.0
+		for i: int in buf.size():
+			var t: float = float(i) / RATE
+			var doppler: float = 1.07 - 0.14 * smoothstep(length * 0.35, length * 0.65, t)
+			phase += base * doppler / RATE
+			if phase >= 1.0:
+				phase -= 1.0
+				gain = rng.randf_range(0.75, 1.0)
+			buf[i] += (exp(-phase * 9.0) - 0.11) * gain
+	_lowpass(buf, 1800.0)
+	_noise(rng, buf, 0.0, length, 700.0, 500.0, FILTER_BP, 0.6, 0.0, 1000.0, 0.25, 0.4, 4.0)
+	for i: int in buf.size():
+		var t: float = float(i) / RATE
+		var x: float = (t - length * 0.5) / 0.7
+		buf[i] *= 1.0 / (1.0 + x * x) * clampf(t / 0.3, 0.0, 1.0) * clampf((length - t) / 0.3, 0.0, 1.0)
+	return _reverb(buf, 0.8, 1.0, 0.5, 0.15)
+
+
+# --- Interface --------------------------------------------------------------
+
+## A mechanical switch: press and release.
+func _ui_click(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(0.06)
+	_noise(rng, buf, 0.0, 0.02, 3500.0, 3500.0, FILTER_BP, 0.4, 0.0003, 0.0025, 1.0)
+	_noise(rng, buf, 0.018, 0.02, 2800.0, 2800.0, FILTER_BP, 0.4, 0.0003, 0.002, 0.5)
+	_tone(buf, 0.0, 1800.0, 1800.0, 1.0, 0.0005, 0.006, 0.3)
 	return buf
 
 
-func _plane(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(1.6)
+func _ui_hover(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(0.03)
+	_noise(rng, buf, 0.0, 0.02, 5000.0, 5000.0, FILTER_BP, 0.5, 0.0003, 0.0015, 1.0)
+	return buf
+
+
+## A ship's bell struck twice ("ding-ding"): a ship is ready.
+func _ships_bell(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(2.8)
+	for at: float in [0.0, 0.42]:
+		_noise(rng, buf, at, 0.03, 4000.0, 4000.0, FILTER_BP, 0.6, 0.0003, 0.003, 0.3)
+		_modes(buf, at, 620.0, PackedFloat32Array([0.5, 1.0, 1.183, 1.506, 2.0, 2.514, 2.662, 3.011]),
+			PackedFloat32Array([0.35, 0.6, 0.45, 0.3, 0.55, 0.2, 0.18, 0.12]),
+			PackedFloat32Array([1.6, 1.1, 0.8, 0.6, 0.7, 0.35, 0.3, 0.25]), 1.0)
+	return buf
+
+
+## A bosun's call: the pipe sweeps up, holds with a warble, and falls away. Islands taken.
+func _bosuns_call(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var length: float = 1.4
+	var buf: PackedFloat32Array = _buf(length)
 	var phase: float = 0.0
 	for i: int in buf.size():
 		var t: float = float(i) / RATE
-		var e: float = clampf(t / 0.4, 0.0, 1.0) * clampf((1.6 - t) / 0.7, 0.0, 1.0)
-		var f: float = 92.0 + 18.0 * t
+		var f: float = lerpf(1400.0, 2500.0, smoothstep(0.0, 0.18, t))
+		f += 40.0 * sin(TAU * 11.0 * t) * smoothstep(0.2, 0.35, t)
+		f -= 800.0 * smoothstep(0.9, 1.25, t)
 		phase += TAU * f / RATE
-		var saw: float = fmod(phase / TAU, 1.0) * 2.0 - 1.0
-		var am: float = 0.65 + 0.35 * sin(t * TAU * 23.0)
-		buf[i] = saw * am * e * 0.6
-	_add_noise(rng, buf, 0.0, 0.2, 0.4, 0.6, 0.25)
+		var e: float = clampf(t / 0.04, 0.0, 1.0) * clampf((length - t) / 0.15, 0.0, 1.0)
+		buf[i] += (sin(phase) + 0.15 * sin(2.0 * phase)) * e
+	_noise(rng, buf, 0.0, length, 2500.0, 1700.0, FILTER_BP, 0.3, 0.04, 1000.0, 0.08)
+	return _reverb(buf, 0.4, 0.6, 0.3, 0.12)
+
+
+## The general alarm: an electric gong sounding "bong-bong-bong".
+func _general_alarm(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var buf: PackedFloat32Array = _buf(1.4)
+	for k: int in 5:
+		var at: float = k * 0.22
+		_noise(rng, buf, at, 0.02, 3000.0, 3000.0, FILTER_BP, 0.6, 0.0003, 0.002, 0.25)
+		_modes(buf, at, 440.0, PackedFloat32Array([1.0, 2.0, 2.76, 4.07]),
+			PackedFloat32Array([0.7, 0.3, 0.25, 0.12]), PackedFloat32Array([0.18, 0.12, 0.09, 0.06]), 1.0)
 	return buf
 
 
-func _flak(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(1.0)
-	for k: int in 4:
-		var at: float = k * 0.17 + rng.randf() * 0.05
-		_add_noise(rng, buf, at, 0.45, 0.001, 0.035, 0.9)
-		_add_tone(buf, at, 220.0, 120.0, 0.001, 0.03, 0.4)
-	return buf
+# --- Ambience ---------------------------------------------------------------
 
-
-func _blip(length: float, f0: float, f1: float, tau: float) -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(length)
-	_add_tone(buf, 0.0, f0, f1, 0.002, tau, 1.0)
-	_add_tone(buf, 0.0, f0 * 2.0, f1 * 2.0, 0.002, tau * 0.5, 0.25)
-	return buf
-
-
-func _chime(notes: Array[float], step: float, tail: float) -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(step * notes.size() + tail)
-	for i: int in notes.size():
-		_add_tone(buf, step * i, notes[i], notes[i], 0.004, 0.22, 0.7)
-		_add_tone(buf, step * i, notes[i] * 2.0, notes[i] * 2.0, 0.004, 0.1, 0.2)
-	return buf
-
-
-func _alert() -> PackedFloat32Array:
-	var buf: PackedFloat32Array = _buf(0.9)
-	for i: int in 4:
-		var f: float = 587.33 if i % 2 == 0 else 440.0
-		_add_tone(buf, i * 0.18, f, f, 0.005, 0.07, 0.6, true)
-	return buf
-
-
+## Open sea: a low surge, waves rolling in and washing out, lapping against the hull and
+## a faint hiss of foam.
 func _ocean_loop(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var length: float = 8.0
-	var fade: float = 0.75
+	var length: float = 12.0
+	var fade: float = 1.5
 	var buf: PackedFloat32Array = _buf(length + fade)
-	var low: float = 0.0
-	var low2: float = 0.0
-	var hiss_low: float = 0.0
-	for i: int in buf.size():
-		var t: float = float(i) / RATE
-		var n: float = rng.randf() * 2.0 - 1.0
-		low += 0.02 * (n - low)
-		low2 += 0.02 * (low - low2)
-		hiss_low += 0.25 * (n - hiss_low)
-		var swell: float = 0.55 + 0.45 * pow(sin(PI * t / 4.0), 2.0)
-		var surf: float = pow(maxf(0.0, sin(PI * (t - 1.0) / 2.0)), 6.0)
-		buf[i] = low2 * 9.0 * swell + (n - hiss_low) * (0.05 + 0.12 * surf)
+	var total: float = length + fade
+	_noise(rng, buf, 0.0, total, 110.0, 110.0, FILTER_LP, 0.9, 0.0, 100000.0, 0.8, 0.6, 0.5)
+	_noise(rng, buf, 0.0, total, 3000.0, 3000.0, FILTER_HP, 0.9, 0.0, 100000.0, 0.08, 0.5, 1.0)
+	for k: int in 8:
+		var dur: float = rng.randf_range(2.0, 3.5)
+		var at: float = rng.randf_range(0.0, total - 1.0)
+		var a: float = rng.randf_range(0.5, 1.0)
+		if k % 2 == 0:
+			_noise(rng, buf, at, dur, 300.0, 1800.0, FILTER_BP, 0.9, dur * 0.35, dur * 0.25, a, 0.5, 6.0)
+		else:
+			_noise(rng, buf, at, dur, 1800.0, 400.0, FILTER_BP, 0.9, dur * 0.2, dur * 0.3, a, 0.5, 6.0)
+	for k: int in 20:
+		_noise(rng, buf, rng.randf_range(0.0, total - 0.5), 0.5, 900.0, 600.0, FILTER_BP, 0.8,
+			0.03, 0.08, rng.randf_range(0.2, 0.5))
 	return _loop(buf, length, fade)
 
 
+## Storm: wind howling through the rigging (a resonant band wandering in pitch), the broad
+## rush of the gale, and rain.
 func _wind_loop(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var length: float = 6.0
-	var fade: float = 0.75
+	var length: float = 10.0
+	var fade: float = 1.5
 	var buf: PackedFloat32Array = _buf(length + fade)
-	var a: float = 0.0
-	var b: float = 0.0
-	var rain_low: float = 0.0
+	var low: float = 0.0
+	var band: float = 0.0
+	var span: int = int(RATE / 0.3)
+	var wa: float = rng.randf_range(-0.8, 0.8)
+	var wb: float = rng.randf_range(-0.8, 0.8)
+	var ga: float = rng.randf()
+	var gb: float = rng.randf()
 	for i: int in buf.size():
-		var t: float = float(i) / RATE
+		if i % span == 0:
+			wa = wb
+			wb = rng.randf_range(-0.8, 0.8)
+			ga = gb
+			gb = rng.randf()
+		var s: float = smoothstep(0.0, 1.0, float(i % span) / span)
+		var cut: float = 450.0 * pow(2.0, lerpf(wa, wb, s))
+		var f: float = 2.0 * sin(PI * cut / RATE)
 		var n: float = rng.randf() * 2.0 - 1.0
-		a += 0.06 * (n - a)
-		b += 0.008 * (n - b)
-		rain_low += 0.5 * (n - rain_low)
-		var gust: float = 0.6 + 0.4 * sin(TAU * t / 3.0) * sin(TAU * t / 6.0)
-		var drop: float = 0.0
-		if rng.randf() < 0.004:
-			drop = rng.randf_range(0.3, 0.8)
-		buf[i] = (a - b) * 4.0 * gust + (n - rain_low) * 0.18 + drop * 0.3
+		var high: float = n - low - 0.25 * band
+		band += f * high
+		low += f * band
+		buf[i] += band * 0.12 * (0.4 + 0.6 * lerpf(ga, gb, s))
+	var total: float = length + fade
+	_noise(rng, buf, 0.0, total, 600.0, 600.0, FILTER_LP, 0.9, 0.0, 100000.0, 0.6, 0.6, 0.4)
+	_noise(rng, buf, 0.0, total, 4000.0, 4000.0, FILTER_HP, 0.9, 0.0, 100000.0, 0.15, 0.3, 3.0)
+	_grains(rng, buf, 0.0, total, 400, 2000.0, 6000.0, 1.0, 0.003, 0.02, 0.08)
 	return _loop(buf, length, fade)
 
 
@@ -408,10 +676,16 @@ func _wav(buf: PackedFloat32Array, peak: float, loop: bool = false) -> AudioStre
 	for v: float in buf:
 		top = maxf(top, absf(v))
 	var gain: float = peak / top
+	# Fade the last few milliseconds so a one-shot never ends on a click.
+	var tail: int = mini(buf.size(), int(0.01 * RATE)) if not loop else 0
 	var bytes: PackedByteArray = PackedByteArray()
 	bytes.resize(buf.size() * 2)
 	for i: int in buf.size():
-		bytes.encode_s16(i * 2, int(clampf(buf[i] * gain, -1.0, 1.0) * 32767.0))
+		var g: float = gain
+		var left: int = buf.size() - i
+		if left < tail:
+			g *= float(left) / tail
+		bytes.encode_s16(i * 2, int(clampf(buf[i] * g, -1.0, 1.0) * 32767.0))
 	var wav: AudioStreamWAV = AudioStreamWAV.new()
 	wav.format = AudioStreamWAV.FORMAT_16_BITS
 	wav.mix_rate = RATE

@@ -11,6 +11,8 @@ var gold: Array[int] = [0, 0, 0, 0]
 var steel: Array[int] = [0, 0, 0, 0]
 var time_to_tick: float = 15.0
 var ticks_paid: int = 0
+## Secret sandbox mode (Shift+E, single player only): the side pays nothing and is refunded nothing.
+var infinite: Array[bool] = [false, false, false, false]
 var match_ref: Match = null
 
 
@@ -69,12 +71,16 @@ func pay_tick() -> void:
 
 
 func can_afford(team: int, gold_cost: int, steel_cost: int) -> bool:
+	if infinite[team]:
+		return true
 	return gold[team] >= gold_cost and steel[team] >= steel_cost
 
 
 func spend(team: int, gold_cost: int, steel_cost: int) -> bool:
 	if not can_afford(team, gold_cost, steel_cost):
 		return false
+	if infinite[team]:
+		return true
 	gold[team] -= gold_cost
 	steel[team] -= steel_cost
 	resources_changed.emit(team, gold[team], steel[team])
@@ -82,9 +88,18 @@ func spend(team: int, gold_cost: int, steel_cost: int) -> bool:
 
 
 func refund(team: int, gold_amount: int, steel_amount: int) -> void:
+	if infinite[team]:
+		return
 	gold[team] += gold_amount
 	steel[team] += steel_amount
 	resources_changed.emit(team, gold[team], steel[team])
+
+
+## Turns the sandbox's infinite resources on or off for a side; returns the new state.
+func toggle_infinite(team: int) -> bool:
+	infinite[team] = not infinite[team]
+	resources_changed.emit(team, gold[team], steel[team])
+	return infinite[team]
 
 
 func set_bank(team: int, gold_amount: int, steel_amount: int) -> void:

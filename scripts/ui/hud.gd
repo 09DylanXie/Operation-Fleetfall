@@ -507,6 +507,20 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	elif key != null and key.pressed and not key.echo and key.keycode == KEY_P and not Net.is_online():
 		toggle_pause()
 		get_viewport().set_input_as_handled()
+	elif key != null and key.pressed and not key.echo and key.keycode == KEY_E and key.shift_pressed:
+		toggle_sandbox()
+		get_viewport().set_input_as_handled()
+
+
+## Secret sandbox mode (Shift+E): infinite resources for the local side. In a LAN game it is
+## a command like any other: the host toggles it for the sender's side and answers with the notice.
+func toggle_sandbox() -> void:
+	if match_ref == null or match_ref.is_over or match_ref.local_team < 0:
+		return
+	var note: String = match_ref.command({"type": "sandbox"})
+	if note != "":
+		notify(note)
+	_refresh_all()
 
 
 ## Build cards show the ship itself once the hull art is baked.
@@ -565,6 +579,9 @@ func _refresh_all() -> void:
 	var income: Vector2i = economy.income_for(team)
 	_gold_label.text = "%d  +%d" % [economy.gold[team], income.x]
 	_steel_label.text = "%d  +%d" % [economy.steel[team], income.y]
+	if economy.infinite[team]:
+		_gold_label.text = "∞"
+		_steel_label.text = "∞"
 	var fleet: int = match_ref.fleet_count(team)
 	var cap: int = match_ref.fleet_cap(team)
 	_fleet_label.text = "%d / %d" % [fleet, cap]

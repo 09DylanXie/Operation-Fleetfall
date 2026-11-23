@@ -1950,6 +1950,13 @@ func test_29_a_replica_mirrors_the_host_exactly() -> void:
 	var diff: Array[String] = NetSync.differences(snap, NetSync.build(rep))
 	check(diff.is_empty(), "after one snapshot the replica holds exactly the host's state (differs: %s)" % str(diff))
 	check(rep.ships.size() == host.ships_by_id.size() and rep.net_projectiles.size() > 0, "ships and projectiles are mirrored")
+	# Sandbox mode (Shift+E) is a command the host runs for the sender's side, and is synced.
+	check(host.execute_command(1, {"type": "sandbox"}).contains("ON") and host.economy.infinite[1], "the host toggles sandbox for a client's side")
+	NetSync.apply(rep, NetSync.build(host))
+	check(rep.economy.infinite[1] and not rep.economy.infinite[0], "the client sees its infinite resources")
+	host.execute_command(1, {"type": "sandbox"})
+	NetSync.apply(rep, NetSync.build(host))
+	check(not rep.economy.infinite[1], "and sees it switched off")
 	var bytes: int = var_to_bytes(snap).size()
 	print("    snapshot: %d bytes, %d ships, %d projectiles" % [bytes, rep.ships.size(), rep.net_projectiles.size()])
 	check(bytes < 60000, "a snapshot stays small enough for LAN (%d bytes)" % bytes)
@@ -2109,6 +2116,27 @@ func test_47_supercarrier_and_super_battleship_limits() -> void:
 	m.record_launch(0, CV)
 	check(yard.try_enqueue_ship(CV).contains("per game"), "after four launches SCVs are gone for good")
 	check(m.class_limit_reason(1, CV) == "", "the other side still has all of its own")
+
+
+func test_48_sandbox_infinite_resources() -> void:
+	var m: Match = await start(open_map(), [HUMAN, NONE], true)
+	var yard: Shipyard = m.bases[0].shipyard
+	m.economy.set_bank(0, 0, 0)
+	check(yard.try_enqueue_ship(DD).begins_with("Not enough"), "an empty bank cannot build")
+	var key: InputEventKey = InputEventKey.new()
+	key.keycode = KEY_E
+	key.shift_pressed = true
+	key.pressed = true
+	m.hud._unhandled_key_input(key)
+	check(m.economy.infinite[0] and not m.economy.infinite[1], "Shift+E gives the local side infinite resources")
+	check(m.hud.last_notice().contains("infinite resources ON"), "the HUD confirms it (%s)" % m.hud.last_notice())
+	check(yard.enqueue_ship(DD) and m.economy.gold[0] == 0, "orders are free")
+	yard.cancel_last()
+	check(m.economy.gold[0] == 0 and m.economy.steel[0] == 0, "and refund nothing")
+	m.hud._refresh_all()
+	check(m.hud._gold_label.text == "∞", "the bank shows infinity")
+	m.hud.toggle_sandbox()
+	check(not m.economy.infinite[0] and yard.try_enqueue_ship(DD).begins_with("Not enough"), "Shift+E again turns it off")
 
 
 func test_33_swell_rocks_ships_without_carrying_them_off() -> void:
