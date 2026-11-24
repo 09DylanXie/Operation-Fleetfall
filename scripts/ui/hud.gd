@@ -150,7 +150,7 @@ func _build_ui() -> void:
 	_ranges_toggle.toggled.connect(_on_ranges_toggled)
 	bar.add_child(_ranges_toggle)
 	var help: Label = _make_label(
-		"RMB move/attack/dock  WASD pan  Wheel zoom  H base  X stop", 13)
+		"RMB move/attack/dock  WASD pan  Scroll/pinch zoom  H base  X stop", 13)
 	help.modulate = Color(1, 1, 1, 0.65)
 	help.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

@@ -47,7 +47,7 @@ static func guide_bbcode() -> String:
 		["X / Esc", "Stop the selected ships / clear the selection"],
 		["H / Ctrl+A", "Jump to your Home Base / select every ship"],
 		["R", "Range rings on all your ships (gold guns, cyan torpedoes, violet aircraft)"],
-		["WASD, arrows, middle-drag", "Pan the camera (mouse wheel zooms, click the minimap to jump)"],
+		["WASD, arrows, middle-drag", "Pan the camera (mouse wheel, trackpad two-finger scroll or pinch zooms; click the minimap to jump)"],
 		["P", "Pause (single player)"],
 		["M", "Mute everything (the Sound button sets music and effects volume)"],
 	]:

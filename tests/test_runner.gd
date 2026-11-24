@@ -2881,3 +2881,42 @@ func test_52_volume_panel_and_playlist() -> void:
 	check(repeats == 0, "a track never plays twice in a row")
 	check(picked.size() == tracks.size(), "every track comes up at random")
 	Music.tracks = saved
+
+
+func test_53_trackpad_zoom() -> void:
+	var m: Match = await start(open_map(), [HUMAN, NONE], true)
+	var cam: CameraRig = m.camera as CameraRig
+	check(cam != null, "the match has an RTS camera")
+	var z0: float = cam.zoom.x
+	var up: InputEventPanGesture = InputEventPanGesture.new()
+	up.delta = Vector2(0.0, -2.0)
+	cam._unhandled_input(up)
+	check(cam.zoom.x > z0, "two-finger scroll up zooms in (%.2f -> %.2f)" % [z0, cam.zoom.x])
+	var z1: float = cam.zoom.x
+	var down: InputEventPanGesture = InputEventPanGesture.new()
+	down.delta = Vector2(0.0, 4.0)
+	cam._unhandled_input(down)
+	check(cam.zoom.x < z1, "two-finger scroll down zooms out")
+	var z2: float = cam.zoom.x
+	var pinch: InputEventMagnifyGesture = InputEventMagnifyGesture.new()
+	pinch.factor = 1.25
+	cam._unhandled_input(pinch)
+	check(is_equal_approx(cam.zoom.x, z2 * 1.25), "pinching out zooms in")
+	var z3: float = cam.zoom.x
+	var smooth: InputEventMouseButton = InputEventMouseButton.new()
+	smooth.button_index = MOUSE_BUTTON_WHEEL_UP
+	smooth.pressed = true
+	smooth.factor = 0.25
+	cam._unhandled_input(smooth)
+	check(cam.zoom.x > z3 and cam.zoom.x < z3 * CameraRig.ZOOM_STEP, "a smooth wheel step zooms a fraction of a notch")
+	var notch: InputEventMouseButton = InputEventMouseButton.new()
+	notch.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	notch.pressed = true
+	var z4: float = cam.zoom.x
+	cam._unhandled_input(notch)
+	check(is_equal_approx(cam.zoom.x, z4 / CameraRig.ZOOM_STEP), "a mouse-wheel notch still zooms a full step")
+	for i: int in 200:
+		cam._unhandled_input(down)
+	check(is_equal_approx(cam.zoom.x, CameraRig.ZOOM_MIN), "zoom stays within its limits")
+	m.queue_free()
+	await frames(2)

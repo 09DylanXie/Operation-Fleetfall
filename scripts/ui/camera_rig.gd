@@ -1,6 +1,7 @@
 class_name CameraRig
 extends Camera2D
-## RTS camera: WASD / arrow keys pan, mouse wheel zooms, middle-mouse drag pans.
+## RTS camera: WASD / arrow keys pan, mouse wheel zooms, middle-mouse drag pans. Trackpads
+## zoom too: two-finger scroll (a pan gesture on macOS, smooth wheel steps elsewhere) and pinch.
 
 const PAN_SPEED: float = 1100.0
 const ZOOM_MIN: float = 0.72
@@ -12,6 +13,8 @@ const ZOOM_STEP: float = 1.12
 ## default view is 20% closer than before (1.4 * 1.2 * 1.2); the minimum zoom still shows
 ## as much of the map as it used to.
 const DEFAULT_ZOOM: float = 2.016
+## Zoom steps per unit of trackpad two-finger scroll (`InputEventPanGesture.delta.y`).
+const TRACKPAD_ZOOM_RATE: float = 0.6
 
 var match_ref: Match = null
 var _mid_drag: bool = false
@@ -65,12 +68,22 @@ func _clamp_to_map() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
+		# Smooth-scrolling trackpads send many small wheel steps; `factor` says how big
+		# (0 means a plain mouse-wheel notch).
+		var notch: float = mb.factor if mb.factor > 0.0 else 1.0
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			_set_zoom(zoom.x * ZOOM_STEP)
+			_set_zoom(zoom.x * pow(ZOOM_STEP, notch))
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			_set_zoom(zoom.x / ZOOM_STEP)
+			_set_zoom(zoom.x / pow(ZOOM_STEP, notch))
 		elif mb.button_index == MOUSE_BUTTON_MIDDLE:
 			_mid_drag = mb.pressed
+	elif event is InputEventPanGesture:
+		# Two-finger scroll on a macOS trackpad: up zooms in, down zooms out, like the wheel.
+		var pan: InputEventPanGesture = event as InputEventPanGesture
+		_set_zoom(zoom.x * pow(ZOOM_STEP, -pan.delta.y * TRACKPAD_ZOOM_RATE))
+	elif event is InputEventMagnifyGesture:
+		# Pinch to zoom.
+		_set_zoom(zoom.x * (event as InputEventMagnifyGesture).factor)
 	elif event is InputEventMouseMotion and _mid_drag:
 		position -= (event as InputEventMouseMotion).relative / zoom.x
 		_clamp_to_map()
