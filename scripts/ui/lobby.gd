@@ -2,7 +2,8 @@ class_name Lobby
 extends Control
 ## LAN lobby: four seats, each a human player, an AI, open or closed, with a team number
 ## (same team = allies). The host picks the map size and AI difficulty and starts the game;
-## joined players may change their own team. Built in code so the scene file stays trivial.
+## joined players may change their own team, or give up their seat to spectate (and take an
+## open seat back). Spectators are listed under the seats. Built in code so the scene file stays trivial.
 
 const KIND_LABELS: Array[String] = ["Open", "Closed", "AI"]
 
@@ -13,6 +14,8 @@ var _rows: VBoxContainer = null
 var _size_option: OptionButton = null
 var _difficulty_option: OptionButton = null
 var _start_button: Button = null
+var _spectators_label: Label = null
+var _watch_button: Button = null
 
 
 func _ready() -> void:
@@ -63,6 +66,17 @@ func _build_ui() -> void:
 	var settings: HBoxContainer = HBoxContainer.new()
 	settings.add_theme_constant_override("separation", 12)
 	column.add_child(settings)
+	var watchers: HBoxContainer = HBoxContainer.new()
+	watchers.add_theme_constant_override("separation", 12)
+	column.add_child(watchers)
+	_spectators_label = _make_label("", 17, Color(0.75, 0.88, 1.0))
+	_spectators_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_spectators_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	watchers.add_child(_spectators_label)
+	_watch_button = Button.new()
+	_watch_button.custom_minimum_size = Vector2(170.0, 36.0)
+	_watch_button.pressed.connect(_on_watch_pressed)
+	watchers.add_child(_watch_button)
 	settings.add_child(_make_label("Map", 18))
 	_size_option = OptionButton.new()
 	for size: MapConfig.Size in [MapConfig.Size.SMALL, MapConfig.Size.MEDIUM, MapConfig.Size.LARGE]:
@@ -124,8 +138,22 @@ func _refresh() -> void:
 	_start_button.visible = host
 	var problem: String = Net.start_problem()
 	_start_button.disabled = problem != ""
+	var names: Array[String] = []
+	for watcher: Dictionary in Net.spectators:
+		names.append(String(watcher["name"]) + ("  - you" if int(watcher["peer"]) == me else ""))
+	_spectators_label.text = "Spectators: %s" % (", ".join(names) if not names.is_empty() else "none")
+	var watching: bool = Net.is_spectator(me)
+	var has_open: bool = false
+	for slot: Dictionary in Net.slots:
+		if int(slot["kind"]) == NetSession.Slot.OPEN:
+			has_open = true
+	_watch_button.visible = not host and (watching or Net.slot_of(me) >= 0)
+	_watch_button.text = "Take a seat" if watching else "Spectate"
+	_watch_button.disabled = (watching and not has_open) 		or (not watching and Net.spectators.size() >= NetSession.MAX_SPECTATORS)
 	if host:
 		_status_label.text = problem
+	elif watching:
+		_status_label.text = "You are spectating - you will watch the next game with the whole sea in view"
 	elif Net.slot_of(me) < 0:
 		_status_label.text = "Connecting to the host ..."
 	else:
@@ -179,6 +207,10 @@ func _make_row(index: int, slot: Dictionary, host: bool, me: int, side: int) -> 
 
 func _on_status(text: String) -> void:
 	_status_label.text = text
+
+
+func _on_watch_pressed() -> void:
+	Net.request_spectate(not Net.is_spectator(Net.my_peer_id()))
 
 
 func _on_start_pressed() -> void:

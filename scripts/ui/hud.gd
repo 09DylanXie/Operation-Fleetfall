@@ -30,6 +30,10 @@ var _end_panel: PanelContainer = null
 var _end_label: Label = null
 var _again_button: Button = null
 var _leave_button: Button = null
+## Shown when the local side is knocked out while the match goes on: spectate or leave.
+var _defeat_panel: PanelContainer = null
+var _defeat_label: Label = null
+var _defeat_leave: Button = null
 var _minimap: Minimap = null
 var _refresh: float = 0.0
 var _header_label: Label = null
@@ -387,8 +391,67 @@ func _build_ui() -> void:
 	_leave_button.custom_minimum_size = Vector2(0.0, 40.0)
 	_leave_button.pressed.connect(_on_main_menu_pressed)
 	end_column.add_child(_leave_button)
+	_build_defeat_panel()
 	_build_pause_overlay()
 	UITheme.liven(_root)
+
+
+func _build_defeat_panel() -> void:
+	_defeat_panel = PanelContainer.new()
+	_defeat_panel.name = "DefeatPanel"
+	_defeat_panel.set_anchors_preset(Control.PRESET_CENTER)
+	_defeat_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_defeat_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_defeat_panel.custom_minimum_size = Vector2(520.0, 240.0)
+	_defeat_panel.visible = false
+	var style: StyleBoxFlat = UITheme.box(Color(0.03, 0.07, 0.12, 0.96), UITheme.BRASS, 3, 14)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.6)
+	style.shadow_size = 24
+	UITheme.pad(style, 30, 22)
+	_defeat_panel.add_theme_stylebox_override("panel", style)
+	_root.add_child(_defeat_panel)
+	var column: VBoxContainer = VBoxContainer.new()
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", 10)
+	_defeat_panel.add_child(column)
+	var title: Label = _make_label("DEFEATED", 48)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4))
+	title.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
+	title.add_theme_constant_override("outline_size", 12)
+	column.add_child(title)
+	_defeat_label = _make_label("", 17)
+	_defeat_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_defeat_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_defeat_label)
+	var spectate: Button = Button.new()
+	spectate.name = "Spectate"
+	spectate.text = "Spectate"
+	spectate.theme_type_variation = "AccentButton"
+	spectate.custom_minimum_size = Vector2(0.0, 44.0)
+	spectate.pressed.connect(spectate_match)
+	column.add_child(spectate)
+	_defeat_leave = Button.new()
+	_defeat_leave.name = "Leave"
+	_defeat_leave.custom_minimum_size = Vector2(0.0, 40.0)
+	_defeat_leave.theme_type_variation = "DangerButton"
+	_defeat_leave.pressed.connect(_on_main_menu_pressed)
+	column.add_child(_defeat_leave)
+
+
+func defeat_panel_shown() -> bool:
+	return _defeat_panel != null and _defeat_panel.visible
+
+
+## Watch the rest of the match with the fog lifted (after the local side is knocked out).
+func spectate_match() -> void:
+	_defeat_panel.visible = false
+	match_ref.spectator = true
+	if match_ref.fog != null:
+		match_ref.fog.visible = false
+	if match_ref.player != null:
+		match_ref.player.clear_selection()
+	notify("Spectating - the whole sea is in view")
 
 
 func _build_pause_overlay() -> void:
@@ -663,7 +726,7 @@ func _watch_events(team: int) -> void:
 func _refresh_selection(team: int) -> void:
 	var controller: PlayerController = match_ref.player
 	if controller == null or match_ref.local_team < 0 or match_ref.eliminated[match_ref.local_team]:
-		_info_label.text = "Spectating" if match_ref.local_team >= 0 else "Spectating  (AI vs AI)"
+		_info_label.text = "Spectating" if match_ref.local_team >= 0 or Net.is_online() else "Spectating  (AI vs AI)"
 		_header_label.text = "Observer"
 		_hp_bar.visible = false
 		_build_box.visible = false
@@ -872,6 +935,7 @@ func _on_radar_pressed() -> void:
 
 
 func _on_match_ended(winning_team: int) -> void:
+	_defeat_panel.visible = false
 	_end_panel.visible = true
 	_end_panel.pivot_offset = _end_panel.size * 0.5
 	_end_panel.scale = Vector2(0.6, 0.6)
@@ -895,14 +959,18 @@ func _on_match_ended(winning_team: int) -> void:
 func _on_team_eliminated(team: int) -> void:
 	var local: int = match_ref.local_team
 	if team == local:
-		notify("Your Home Base has fallen - you are out. You can keep watching.")
-		if not match_ref.living_alliances().has(match_ref.alliance[local]):
-			# Nobody left on your side: the fog lifts for the rest of the match.
-			match_ref.spectator = true
-			if match_ref.fog != null:
-				match_ref.fog.visible = false
 		if match_ref.player != null:
 			match_ref.player.clear_selection()
+		# The match goes on without you: spectate the rest or leave.
+		var allies_fight: bool = match_ref.living_alliances().has(match_ref.alliance[local])
+		_defeat_label.text = "Your Home Base has fallen. %s
+Spectate the rest of the match with the whole sea in view, or leave." % (
+			"Your allies fight on." if allies_fight else "The battle goes on without you.")
+		if Net.is_online() and Net.is_host():
+			_defeat_leave.text = "Leave (ends the game for everyone)"
+		else:
+			_defeat_leave.text = "Leave game" if Net.is_online() else "Main Menu"
+		_defeat_panel.visible = true
 	else:
 		notify("%s has lost their Home Base" % match_ref.side_names[team])
 

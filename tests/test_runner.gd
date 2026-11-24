@@ -2139,6 +2139,52 @@ func test_48_sandbox_infinite_resources() -> void:
 	check(not m.economy.infinite[0] and yard.try_enqueue_ship(DD).begins_with("Not enough"), "Shift+E again turns it off")
 
 
+func test_49_defeated_player_may_spectate_or_leave() -> void:
+	var map: MapData = open_map()
+	map.base_positions.append(Vector2(2000.0, 2200.0))
+	# Three sides: you and an ally against one enemy, so the match goes on after you fall.
+	var m: Match = await start(map, [HUMAN, NONE, NONE], true, [], [1, 1, 2])
+	check(m.team_count == 3 and not m.spectator and m.fog.visible, "three sides, you play under fog")
+	check(not m.hud.defeat_panel_shown(), "no defeat panel while you are in the game")
+	m.bases[0].kill()
+	await frames(3)
+	check(m.eliminated[0] and not m.is_over, "you are out, the match goes on")
+	check(m.hud.defeat_panel_shown(), "the defeat panel offers to spectate or leave")
+	var panel: Control = m.hud.find_child("DefeatPanel", true, false) as Control
+	check(panel != null and panel.find_child("Spectate", true, false) is Button
+		and panel.find_child("Leave", true, false) is Button, "with a Spectate and a Leave button")
+	check(not m.spectator, "still under fog until you choose")
+	m.hud.spectate_match()
+	check(m.spectator and not m.fog.visible and not m.hud.defeat_panel_shown(), "Spectate lifts the fog and closes the panel")
+	var enemy: Ship = m.spawn_ship(DD, 2, Vector2(3600.0, 300.0))
+	check(m.is_combatant_visible_to_local(enemy), "a spectator sees every ship")
+	check(m.hud.last_notice().contains("Spectating"), "the HUD confirms (%s)" % m.hud.last_notice())
+
+
+func test_50_lobby_spectators() -> void:
+	check(Net.host_game(NetSession.DEFAULT_PORT + 31) == "", "host a LAN game")
+	Net.slots[1] = {"kind": NetSession.Slot.HUMAN, "peer": 77, "name": "Ann", "team": 2}
+	var beacon: Dictionary = Net._beacon()
+	check(not bool(beacon["in_match"]) and int(beacon["watch"]) == NetSession.MAX_SPECTATORS, "the beacon offers spectator places")
+	Net._set_spectating(77, true)
+	check(Net.is_spectator(77) and Net.slot_of(77) < 0 and int(Net.slots[1]["kind"]) == NetSession.Slot.OPEN,
+		"a player can give up their seat to spectate")
+	check(Net._lobby_state()["spectators"].size() == 1, "spectators are in the lobby state")
+	Net._set_spectating(77, false)
+	check(not Net.is_spectator(77) and Net.slot_of(77) >= 0, "and take an open seat back")
+	Net._set_spectating(1, true)
+	check(not Net.is_spectator(1) and Net.slot_of(1) == 0, "the host always plays")
+	for i: int in range(1, Net.slots.size()):
+		Net.slots[i] = {"kind": NetSession.Slot.HUMAN, "peer": 80 + i, "name": "P%d" % i, "team": i + 1}
+	Net._set_spectating(81, true)
+	Net._set_spectating(90, false)
+	Net.spectators.append({"peer": 90, "name": "Late"})
+	Net._set_spectating(90, false)
+	check(Net.slot_of(90) >= 0, "a spectator takes the seat that was freed")
+	Net.leave()
+	check(Net.spectators.is_empty() and not Net.is_online(), "leaving clears the spectators")
+
+
 func test_33_swell_rocks_ships_without_carrying_them_off() -> void:
 	var m: Match = await start(open_map(Vector2(3000.0, 2400.0)))
 	var dd: Ship = m.spawn_ship(DD, 0, Vector2(1500.0, 1200.0))

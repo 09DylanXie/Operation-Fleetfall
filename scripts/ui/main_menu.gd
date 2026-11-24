@@ -365,14 +365,19 @@ func _refresh_lan_games(problem: String = "") -> void:
 		row.add_theme_constant_override("separation", 14)
 		var ok: bool = int(game["protocol"]) == NetSession.PROTOCOL
 		var seats: int = int(game["seats"])
-		var label: Label = _make_label("%s's game  -  %d playing, %d open seat%s%s" % [String(game["name"]),
-			int(game["players"]), seats, "" if seats == 1 else "s", "" if ok else "  (different version)"], 17)
+		var running: bool = bool(game.get("in_match", false))
+		var watch: bool = int(game.get("watch", 0)) > 0
+		var state: String = "in progress, %d playing" % int(game["players"]) if running else 			"%d playing, %d open seat%s" % [int(game["players"]), seats, "" if seats == 1 else "s"]
+		var label: Label = _make_label("%s's game  -  %s%s" % [String(game["name"]), state,
+			"" if ok else "  (different version)"], 17)
 		label.custom_minimum_size = Vector2(460.0, 0.0)
 		row.add_child(label)
 		var join: Button = Button.new()
-		join.text = "Join"
-		join.custom_minimum_size = Vector2(100.0, 36.0)
-		join.disabled = not ok or seats <= 0
+		# A running game, or a full lobby, can still be joined to watch.
+		var spectate: bool = running or seats <= 0
+		join.text = "Spectate" if spectate else "Join"
+		join.custom_minimum_size = Vector2(110.0, 36.0)
+		join.disabled = not ok or (spectate and not watch)
 		var address: String = String(game["address"])
 		var game_port: int = int(game["port"])
 		join.pressed.connect(func() -> void:

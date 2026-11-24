@@ -7,7 +7,8 @@ extends Node
 ## (Match.execute_command validates them against the sender's side) and draw the
 ## full-state snapshots it broadcasts (see NetSync). Up to four sides; each human player
 ## has a side of their own, sides with the same team number are allies, empty seats can
-## be filled with AI.
+## be filled with AI. Spectators (up to MAX_SPECTATORS) watch without a side: anyone who
+## joins while a match is running, or finds the lobby full, watches with the fog lifted.
 
 signal lobby_changed
 signal status_changed(text: String)
@@ -17,8 +18,9 @@ enum Slot { OPEN, CLOSED, AI, HUMAN }
 
 const DEFAULT_PORT: int = 24567
 ## Bumped whenever the messages change, so mismatched builds refuse each other politely.
-const PROTOCOL: int = 1
+const PROTOCOL: int = 2
 const MAX_NAME_LENGTH: int = 16
+const MAX_SPECTATORS: int = 4
 ## The host sends a snapshot every this many physics frames (15 per second at 60 Hz).
 const SNAPSHOT_EVERY: int = 4
 const LOBBY_SCENE: String = "res://scenes/lobby.tscn"
@@ -29,6 +31,8 @@ var port: int = DEFAULT_PORT
 ## Lobby seats, owned by the host and mirrored to the clients. Each is
 ## {"kind": Slot, "peer": int, "name": String, "team": int (1-4)}.
 var slots: Array[Dictionary] = []
+## Watchers without a seat, owned by the host and mirrored: each {"peer": int, "name": String}.
+var spectators: Array[Dictionary] = []
 var map_size: int = MapConfig.Size.MEDIUM
 var difficulty: int = GameSettings.Difficulty.MEDIUM
 var in_match: bool = false
@@ -99,7 +103,7 @@ static func lan_addresses() -> PackedStringArray:
 func host_game(p_port: int = DEFAULT_PORT) -> String:
 	leave()
 	var peer: ENetMultiplayerPeer = ENetMultiplayerPeer.new()
-	var err: Error = peer.create_server(p_port, Layers.MAX_TEAMS - 1)
+	var err: Error = peer.create_server(p_port, Layers.MAX_TEAMS - 1 + MAX_SPECTATORS)
 	if err != OK:
 		return "Could not open UDP port %d (%s)" % [p_port, error_string(err)]
 	multiplayer.multiplayer_peer = peer
@@ -128,16 +132,19 @@ func join_game(address: String, p_port: int = DEFAULT_PORT) -> String:
 	return ""
 
 
-## What the LAN beacon says about this game: only while hosting and still in the lobby.
+## What the LAN beacon says about this game while hosting: open seats in the lobby, or that
+## a match is running (newcomers can watch it).
 func _beacon() -> Dictionary:
-	if not is_host() or in_match:
+	if not is_host():
 		return {}
 	var open: int = 0
-	for slot: Dictionary in slots:
-		if int(slot["kind"]) == Slot.OPEN:
-			open += 1
+	if not in_match:
+		for slot: Dictionary in slots:
+			if int(slot["kind"]) == Slot.OPEN:
+				open += 1
 	return {"id": _session_id, "name": player_name, "port": port, "protocol": PROTOCOL,
-		"players": filled_slots().size(), "seats": open}
+		"players": filled_slots().size(), "seats": open, "in_match": in_match,
+		"watch": MAX_SPECTATORS - spectators.size()}
 
 
 ## Closes the session (no-op offline). Other machines notice the disconnect.
@@ -157,6 +164,7 @@ func leave() -> void:
 	snapshots_applied = 0
 	last_snapshot = {}
 	_reset_slots()
+	spectators.clear()
 
 
 func _end_session(reason: String) -> void:
@@ -177,6 +185,52 @@ func _reset_slots() -> void:
 func slot_of(peer: int) -> int:
 	for i: int in slots.size():
 		if int(slots[i]["kind"]) == Slot.HUMAN and int(slots[i]["peer"]) == peer:
+			return i
+	return -1
+
+
+## True if `peer` is watching rather than holding a seat.
+func is_spectator(peer: int) -> bool:
+	return _spectator_index(peer) >= 0
+
+
+func _spectator_index(peer: int) -> int:
+	for i: int in spectators.size():
+		if int(spectators[i]["peer"]) == peer:
+			return i
+	return -1
+
+
+## A player in the lobby may give up their seat to watch, or a spectator take an open seat.
+## (The host always plays.)
+func request_spectate(watch: bool) -> void:
+	if mode == Mode.CLIENT:
+		_rpc_request_spectate.rpc_id(1, watch)
+
+
+func _set_spectating(peer: int, watch: bool) -> void:
+	if not is_host() or in_match or peer == 1:
+		return
+	var seat: int = slot_of(peer)
+	var watcher: int = _spectator_index(peer)
+	if watch and seat >= 0 and spectators.size() < MAX_SPECTATORS:
+		spectators.append({"peer": peer, "name": String(slots[seat]["name"])})
+		slots[seat] = {"kind": Slot.OPEN, "peer": 0, "name": "", "team": int(slots[seat]["team"])}
+	elif not watch and watcher >= 0:
+		var open: int = _open_slot()
+		if open < 0:
+			return
+		slots[open] = {"kind": Slot.HUMAN, "peer": peer, "name": String(spectators[watcher]["name"]),
+			"team": int(slots[open]["team"])}
+		spectators.remove_at(watcher)
+	else:
+		return
+	_broadcast_lobby()
+
+
+func _open_slot() -> int:
+	for i: int in slots.size():
+		if int(slots[i]["kind"]) == Slot.OPEN:
 			return i
 	return -1
 
@@ -244,7 +298,7 @@ func start_problem() -> String:
 
 
 func _lobby_state() -> Dictionary:
-	return {"slots": slots, "size": map_size, "difficulty": difficulty}
+	return {"slots": slots, "spectators": spectators, "size": map_size, "difficulty": difficulty}
 
 
 func _broadcast_lobby() -> void:
@@ -291,8 +345,6 @@ func _begin(config: Dictionary) -> void:
 	in_match = true
 	snapshots_applied = 0
 	_frames = 0
-	if is_host():
-		multiplayer.multiplayer_peer.refuse_new_connections = true
 	GameSettings.map_size = clampi(int(config.get("size", 1)), 0, MapConfig.Size.size() - 1) as MapConfig.Size
 	GameSettings.ai_difficulty = clampi(int(config.get("difficulty", 2)), 0, 2) as GameSettings.Difficulty
 	get_tree().change_scene_to_file(GameSettings.MATCH_SCENE)
@@ -311,8 +363,6 @@ func _enter_lobby() -> void:
 	_match_config = {}
 	_match = null
 	_peer_side.clear()
-	if is_host():
-		multiplayer.multiplayer_peer.refuse_new_connections = false
 	get_tree().change_scene_to_file(LOBBY_SCENE)
 	if is_host():
 		_broadcast_lobby.call_deferred()
@@ -418,6 +468,12 @@ func _on_peer_connected(_peer: int) -> void:
 func _on_peer_disconnected(peer: int) -> void:
 	if not is_host():
 		return
+	var watcher: int = _spectator_index(peer)
+	if watcher >= 0:
+		spectators.remove_at(watcher)
+		if not in_match:
+			_broadcast_lobby()
+		return
 	var index: int = slot_of(peer)
 	var who: String = String(slots[index]["name"]) if index >= 0 else "A player"
 	if index >= 0:
@@ -456,18 +512,27 @@ func _rpc_hello(protocol: int, who: String) -> void:
 	if protocol != PROTOCOL:
 		_refuse(peer, "The host runs a different version of Fleetfall")
 		return
+	if slot_of(peer) >= 0 or is_spectator(peer):
+		return
+	var open: int = -1 if in_match else _open_slot()
+	if open >= 0:
+		slots[open] = {"kind": Slot.HUMAN, "peer": peer, "name": clean_name(who, "Player %d" % (open + 1)),
+			"team": int(slots[open]["team"])}
+		_broadcast_lobby()
+		return
+	if spectators.size() >= MAX_SPECTATORS:
+		_refuse(peer, "That game is full, spectator places too")
+		return
+	# A match running, or no seat left: the newcomer watches.
+	var watcher_name: String = clean_name(who, "Spectator %d" % (spectators.size() + 1))
+	spectators.append({"peer": peer, "name": watcher_name})
 	if in_match:
-		_refuse(peer, "That game has already started")
-		return
-	if slot_of(peer) >= 0:
-		return
-	for i: int in slots.size():
-		if int(slots[i]["kind"]) == Slot.OPEN:
-			slots[i] = {"kind": Slot.HUMAN, "peer": peer, "name": clean_name(who, "Player %d" % (i + 1)),
-				"team": int(slots[i]["team"])}
-			_broadcast_lobby()
-			return
-	_refuse(peer, "The lobby is full")
+		# Start first, so the lobby state that follows does not pull it into the lobby scene.
+		_rpc_start.rpc_id(peer, _match_config)
+		_rpc_lobby.rpc_id(peer, _lobby_state())
+		announce("%s is now spectating" % watcher_name)
+	else:
+		_broadcast_lobby()
 
 
 func _refuse(peer: int, reason: String) -> void:
@@ -492,6 +557,11 @@ func _rpc_lobby(state: Dictionary) -> void:
 	for entry: Variant in incoming:
 		if entry is Dictionary:
 			slots.append(entry as Dictionary)
+	var watching: Array = state.get("spectators", [])
+	spectators.clear()
+	for entry: Variant in watching:
+		if entry is Dictionary:
+			spectators.append(entry as Dictionary)
 	map_size = int(state.get("size", MapConfig.Size.MEDIUM))
 	difficulty = int(state.get("difficulty", GameSettings.Difficulty.MEDIUM))
 	if not in_match and get_tree().current_scene != null \
@@ -507,6 +577,12 @@ func _rpc_request_team(team: int) -> void:
 	var index: int = slot_of(multiplayer.get_remote_sender_id())
 	if index >= 0:
 		set_slot_team(index, team)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_spectate(watch: bool) -> void:
+	if is_host():
+		_set_spectating(multiplayer.get_remote_sender_id(), watch)
 
 
 @rpc("authority", "call_remote", "reliable")

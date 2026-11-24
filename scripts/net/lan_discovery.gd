@@ -22,7 +22,7 @@ var _sender: PacketPeerUDP = null
 var _listener: PacketPeerUDP = null
 var _beacon_cd: float = 0.0
 var _clock: float = 0.0
-## "address:port" -> {"address", "port", "name", "players", "seats", "open", "protocol", "seen"}
+## "address:port" -> {"address", "port", "name", "players", "seats", "in_match", "watch", "protocol", "seen"}
 var _games: Dictionary[String, Dictionary] = {}
 
 
@@ -148,6 +148,8 @@ func _receive() -> void:
 			"name": NetSession.clean_name(String(info.get("name", "")), "Fleetfall host"),
 			"players": clampi(int(info.get("players", 0)), 0, Layers.MAX_TEAMS),
 			"seats": clampi(int(info.get("seats", 0)), 0, Layers.MAX_TEAMS),
+			"in_match": bool(info.get("in_match", false)),
+			"watch": clampi(int(info.get("watch", 0)), 0, NetSession.MAX_SPECTATORS),
 			"protocol": int(info.get("protocol", 0)),
 			"seen": _clock,
 		}

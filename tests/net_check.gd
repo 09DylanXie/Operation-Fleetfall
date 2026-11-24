@@ -6,6 +6,7 @@ extends Node
 ## Host options: --port=N --seed=N --ai=K (extra AI seats) --coop (seat 2 allied with the host)
 ##   --rounds=N (after each round the host takes everybody back to the lobby and starts again)
 ## Client options: --port=N --name=S --quit-at=SECONDS (drop out mid-match) --seconds=N
+##   --late=SECONDS (connect only after this long: joins the running match as a spectator)
 ##   --team=N (pick a team in the lobby) --rounds=N
 ## Client: --discover opens the start menu, waits for the host's game in its LAN list and
 ##   presses that row's Join button (no address typed).
@@ -65,6 +66,8 @@ class Driver extends Node:
 	var shot_taken: bool = false
 	var lobby_shot: String = ""
 	var lobby_wait: float = -1.0
+	var late: float = -1.0
+	var player_name: String = "Client"
 
 	func _ready() -> void:
 		process_mode = Node.PROCESS_MODE_ALWAYS
@@ -102,6 +105,8 @@ class Driver extends Node:
 				lobby_shot = arg.trim_prefix("--lobby-shot=")
 			elif arg.begins_with("--name="):
 				player = arg.trim_prefix("--name=")
+			elif arg.begins_with("--late="):
+				late = float(arg.trim_prefix("--late="))
 		if role == "menu":
 			get_tree().change_scene_to_file(GameSettings.MENU_SCENE)
 			return
@@ -127,6 +132,10 @@ class Driver extends Node:
 			get_tree().change_scene_to_file(NetSession.LOBBY_SCENE)
 		else:
 			Net.player_name = player
+			player_name = player
+			if late > 0.0:
+				print("NETCHECK client %s joins late, at %.0fs" % [player, late])
+				return
 			var problem: String = Net.join_game("127.0.0.1", port)
 			print("NETCHECK client %s joining %s" % [player, problem])
 
@@ -255,6 +264,11 @@ class Driver extends Node:
 		max_bytes = 0
 
 	func _client_step() -> void:
+		if late > 0.0:
+			if wall >= late:
+				late = -1.0
+				print("NETCHECK client %s joining late %s" % [player_name, Net.join_game("127.0.0.1", port)])
+			return
 		if discover and not discovered:
 			_press_discovered_join()
 			return
@@ -288,6 +302,9 @@ class Driver extends Node:
 				mismatches += 1
 				if first_diff == "":
 					first_diff = str(diff)
+		if me < 0:
+			_spectator_step(m)
+			return
 		var home: Shipyard = m.bases[me].shipyard
 		if not forged_sent:
 			forged_sent = true
@@ -332,5 +349,20 @@ class Driver extends Node:
 				reported_match = m.get_instance_id()
 				_reset_round()
 				return
+			Net.leave()
+			get_tree().quit(0)
+
+	## A spectator (joined mid-match): mirrors the host, sees everything, and its commands do nothing.
+	func _spectator_step(m: Match) -> void:
+		if not forged_sent:
+			forged_sent = true
+			var host_yard: int = m.yards.find(m.bases[0].shipyard)
+			m.command({"type": "build", "yard": host_yard, "cls": int(ShipStats.ShipClass.DD)})
+			Net._send_command({"type": "sandbox"})
+			move_time = m.sim_time
+		if m.sim_time >= move_time + 15.0 or m.is_over:
+			print("NETCHECK SPECTATOR %s side=%d spectator=%s watching=%s snapshots=%d checked=%d mismatches=%d first_diff=%s infinite=%s fog=%s ships_seen=%d" % [
+				Net.player_name, m.local_team, m.spectator, Net.is_spectator(Net.my_peer_id()), Net.snapshots_applied,
+				checked, mismatches, first_diff, m.economy.infinite, m.fog.visible if m.fog != null else false, m.ships.size()])
 			Net.leave()
 			get_tree().quit(0)

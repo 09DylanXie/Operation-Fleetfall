@@ -131,7 +131,8 @@ Up to four players on one local network, each with a fleet of their own. One pla
 
 - The host's computer runs the battle; the others send their orders to it and show what it sends back, about 15 times a second. Play on a wired or good Wi-Fi LAN.
 - The game uses **UDP port 24567**, and **UDP port 24568** for finding games on the network. The first time you host or browse, Windows Firewall asks whether to allow Fleetfall on private networks: allow it, or nobody can join or see your game.
-- If a player leaves mid-match, the computer takes over their fleet. If the host leaves, the match ends for everyone. A player whose Home Base falls can keep watching.
+- If a player leaves mid-match, the computer takes over their fleet. If the host leaves, the match ends for everyone.
+- **Spectating:** a game already under way shows a **Spectate** button in the LAN list: join it to watch with the whole sea in view (up to four spectators). A full lobby can be joined to spectate too, and in the lobby any player can press **Spectate** to give up their seat (or **Take a seat** to get one back). When your Home Base falls and the battle goes on (3 or 4 sides, or your allies fight on), you choose **Spectate** or **Leave**.
 - After the match the host can take everyone **Back to Lobby** for another round.
 
 ### Controls
@@ -200,6 +201,7 @@ godot --headless --path . res://tests/net_check.tscn -- --role=client --name=Bob
 # Options: --rounds=2 (back to the lobby and play again), --team=N (client picks a team),
 # --via-menu with --host / --join=127.0.0.1 (go through the real start menu), --coop,
 # --discover (client finds the game in the menu's LAN list and presses Join)
+# --late=25 (client joins 25 s into the match as a spectator and checks it mirrors the host)
 
 # Windowed 30-vs-30 battle: saves screenshots and prints frame times
 godot --path . --resolution 1920x1080 res://tests/visual_check.tscn -- --out=C:/some/folder
