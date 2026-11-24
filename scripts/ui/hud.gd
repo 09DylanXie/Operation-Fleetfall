@@ -47,6 +47,8 @@ var _gold_chip: Control = null
 var _steel_chip: Control = null
 var _fleet_chip: Control = null
 var _sound_button: Button = null
+## Music / effects volume panel, dropped down from the top bar's Sound button.
+var sound_panel: SoundPanel = null
 var _notice_panel: PanelContainer = null
 var _icons_set: bool = false
 var _last_gold: int = -1
@@ -168,10 +170,11 @@ func _build_ui() -> void:
 	bar.add_child(_pause_button)
 	_sound_button = Button.new()
 	_sound_button.focus_mode = Control.FOCUS_NONE
-	_sound_button.tooltip_text = "Sound effects and ocean ambience on / off (M)"
-	_sound_button.pressed.connect(toggle_sound)
+	_sound_button.tooltip_text = "Music and effects volume (M mutes everything)"
+	_sound_button.pressed.connect(toggle_sound_panel)
 	bar.add_child(_sound_button)
 	_update_sound_button()
+	Sfx.mute_changed.connect(_on_mute_changed)
 	_menu_button = Button.new()
 	_menu_button.theme_type_variation = "DangerButton"
 	_menu_button.text = "Menu"
@@ -393,6 +396,14 @@ func _build_ui() -> void:
 	end_column.add_child(_leave_button)
 	_build_defeat_panel()
 	_build_pause_overlay()
+	sound_panel = SoundPanel.new()
+	sound_panel.visible = false
+	sound_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	sound_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	sound_panel.offset_top = 52.0
+	sound_panel.offset_right = -10.0
+	sound_panel.closed.connect(func() -> void: sound_panel.visible = false)
+	_root.add_child(sound_panel)
 	UITheme.liven(_root)
 
 
@@ -532,6 +543,8 @@ func set_paused(value: bool) -> void:
 func _exit_tree() -> void:
 	if is_paused():
 		get_tree().paused = false
+	if Sfx.mute_changed.is_connected(_on_mute_changed):
+		Sfx.mute_changed.disconnect(_on_mute_changed)
 
 
 ## A rounded "chip" on the top bar: an icon and a value.
@@ -553,13 +566,28 @@ func _chip(bar: HBoxContainer, icon: Control, label: Label, tip: String) -> Pane
 	return chip
 
 
+## Mute / unmute everything (M).
 func toggle_sound() -> void:
 	Sfx.toggle_mute()
+
+
+## Shows or hides the volume panel (the top bar's Sound button).
+func toggle_sound_panel() -> void:
+	if sound_panel == null:
+		return
+	sound_panel.visible = not sound_panel.visible
+	if sound_panel.visible:
+		sound_panel.refresh()
+
+
+func _on_mute_changed(_muted: bool) -> void:
 	_update_sound_button()
+	if sound_panel != null:
+		sound_panel.refresh()
 
 
 func _update_sound_button() -> void:
-	_sound_button.text = "Sound: %s (M)" % ("off" if Sfx.muted else "on")
+	_sound_button.text = "Sound: muted (M)" if Sfx.muted else "Sound"
 
 
 func _unhandled_key_input(event: InputEvent) -> void:

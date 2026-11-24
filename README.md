@@ -146,7 +146,7 @@ Up to four players on one local network, each with a fleet of their own. One pla
 | **U** / **C** | Build or upgrade the selected shipyard / cancel the last queued order (full refund) |
 | **X** / **Esc** | Stop the selected ships (a Carrier's air wing goes back to picking its own targets) / clear the selection |
 | **P** | Pause / resume (single player only; also the **Pause** button in the top bar) |
-| **M** | Sound on / off (also the **Sound** button in the top bar) |
+| **M** | Mute / unmute everything (the **Sound** button in the top bar sets music and effects volume) |
 | **R** | Toggle range rings for all your ships (also the **Ranges** switch in the top bar); selected ships always show theirs |
 | **H** / **Ctrl+A** | Jump to the Home Base / select every ship |
 | **WASD, arrows, middle-drag** | Pan the camera (mouse wheel zooms, click the minimap to jump) |

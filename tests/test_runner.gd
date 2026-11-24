@@ -2802,3 +2802,82 @@ func test_44_title_screen_start_button() -> void:
 	await frames(2)
 	GameSettings.menu_shown = was_shown
 	GameSettings.ai_difficulty = level
+
+
+func test_51_menu_guide_credits_and_sound() -> void:
+	var was_shown: bool = GameSettings.menu_shown
+	GameSettings.menu_shown = true
+	var menu: MainMenu = (load(GameSettings.MENU_SCENE) as PackedScene).instantiate() as MainMenu
+	add_child(menu)
+	await frames(2)
+	menu.open_guide()
+	await frames(2)
+	check(menu.page != null and menu.page.is_visible_in_tree(), "How to Play opens a page")
+	var guide: String = (menu.page.find_child("Text", true, false) as RichTextLabel).get_parsed_text()
+	check(guide.contains("Controls") and guide.contains("Right click"), "the guide lists the controls")
+	for ship_class: ShipStats.ShipClass in GameData.all_classes():
+		var stats: ShipStats = GameData.ship(ship_class)
+		check(guide.contains(stats.display_name) and MenuPages.ROLES.has(stats.code),
+			"the guide describes the %s" % stats.code)
+	menu.close_page()
+	await frames(2)
+	check(menu.page == null, "Back closes the page")
+	menu.open_credits()
+	await frames(2)
+	var credits: String = (menu.page.find_child("Text", true, false) as RichTextLabel).get_parsed_text()
+	check(credits.contains("Pixabay") and credits.contains("Godot"), "credits name Pixabay and Godot")
+	for path: String in Music.find_tracks():
+		var credit: Array[String] = Music.credit_for(path)
+		check(credit[1] != "Unknown artist", "%s has a credit entry" % path.get_file())
+		check(credits.contains(credit[0]) and credits.contains(credit[1]), "credits list %s by %s" % credit)
+	menu.close_page()
+	menu.toggle_sound_panel()
+	await frames(2)
+	check(menu.sound_overlay != null and menu.sound_overlay.is_visible_in_tree(), "Sound opens the volume panel")
+	menu.toggle_sound_panel()
+	await frames(2)
+	check(menu.sound_overlay == null, "and closes it")
+	menu.queue_free()
+	await frames(2)
+	GameSettings.menu_shown = was_shown
+
+
+func test_52_volume_panel_and_playlist() -> void:
+	var m: Match = await start(open_map(), [HUMAN, NONE], true)
+	check(m.hud.sound_panel != null and not m.hud.sound_panel.visible, "the HUD has a hidden volume panel")
+	m.hud.toggle_sound_panel()
+	await frames(1)
+	check(m.hud.sound_panel.visible, "the Sound button shows it")
+	var music_before: float = AudioMix.volume(AudioMix.MUSIC)
+	var sfx_before: float = AudioMix.volume(AudioMix.SFX)
+	m.hud.sound_panel.music_slider.value = 0.3
+	m.hud.sound_panel.sfx_slider.value = 0.0
+	check(absf(AudioMix.volume(AudioMix.MUSIC) - 0.3) < 0.001, "the music slider sets the music volume")
+	var sfx_bus: int = AudioServer.get_bus_index(AudioMix.SFX)
+	check(sfx_bus >= 0 and AudioServer.is_bus_mute(sfx_bus), "effects at zero silence the SFX bus")
+	var music_bus: int = AudioServer.get_bus_index(AudioMix.MUSIC)
+	check(music_bus >= 0 and AudioServer.get_bus_volume_db(music_bus) < 0.0, "the Music bus is turned down")
+	AudioMix.set_volume(AudioMix.MUSIC, music_before)
+	AudioMix.set_volume(AudioMix.SFX, sfx_before)
+	m.hud.toggle_sound()
+	check(Sfx.muted and m.hud.sound_panel.mute_toggle.button_pressed, "M mutes and the panel shows it")
+	m.hud.sound_panel.mute_toggle.button_pressed = false
+	check(not Sfx.muted and m.hud._sound_button.text == "Sound", "the panel's switch unmutes")
+	m.queue_free()
+	await frames(2)
+	var tracks: PackedStringArray = Music.find_tracks()
+	check(tracks.size() >= 8, "the playlist finds the soundtrack in subfolders (%d tracks)" % tracks.size())
+	var saved: PackedStringArray = Music.tracks
+	Music.tracks = tracks
+	var last: String = tracks[0]
+	var repeats: int = 0
+	var picked: Dictionary[String, bool] = {}
+	for i: int in 200:
+		var next: String = Music.pick_next(last)
+		if next == last:
+			repeats += 1
+		picked[next] = true
+		last = next
+	check(repeats == 0, "a track never plays twice in a row")
+	check(picked.size() == tracks.size(), "every track comes up at random")
+	Music.tracks = saved

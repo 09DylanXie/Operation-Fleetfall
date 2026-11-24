@@ -14,14 +14,19 @@ const VOLUME: Dictionary[String, float] = {
 	"gun_small": -10.0, "gun_mid": -8.0, "gun_big": -5.0, "splash": -14.0, "hit": -9.0,
 	"torpedo_launch": -11.0, "torpedo_hit": -4.0, "explosion": -2.0, "depth_charge": -6.0,
 	"bomb": -5.0, "plane": -13.0, "flak": -11.0, "ui_click": -12.0, "ui_hover": -22.0,
-	"build_done": -10.0, "capture": -10.0, "alert": -10.0,
+	"build_done": -21.0, "capture": -22.0, "alert": -10.0,
 }
+## The ocean bed sits far under combat and music: it should be felt more than heard.
+const OCEAN_DB: float = -27.0
 const MIN_GAP: Dictionary[String, float] = {
 	"gun_small": 0.04, "gun_mid": 0.05, "gun_big": 0.08, "splash": 0.05, "hit": 0.05,
 	"torpedo_launch": 0.15, "torpedo_hit": 0.1, "explosion": 0.15, "depth_charge": 0.12,
 	"bomb": 0.08, "plane": 0.6, "flak": 0.2, "ui_click": 0.03, "ui_hover": 0.05,
 	"build_done": 0.5, "capture": 0.5, "alert": 1.0,
 }
+
+## Emitted when the whole game is muted or unmuted (M, or the Sound panel).
+signal mute_changed(muted: bool)
 
 var muted: bool = false
 var enabled: bool = false
@@ -43,8 +48,10 @@ func _ready() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
 	enabled = true
+	AudioMix.setup()
 	for i: int in POOL_SIZE:
 		var player: AudioStreamPlayer2D = AudioStreamPlayer2D.new()
+		player.bus = AudioMix.SFX
 		player.max_distance = LISTEN_DISTANCE
 		player.attenuation = 1.2
 		player.panning_strength = 0.8
@@ -52,10 +59,13 @@ func _ready() -> void:
 		_pool.append(player)
 	for i: int in UI_POOL_SIZE:
 		var ui: AudioStreamPlayer = AudioStreamPlayer.new()
+		ui.bus = AudioMix.SFX
 		add_child(ui)
 		_ui_pool.append(ui)
 	_ocean = AudioStreamPlayer.new()
 	_wind = AudioStreamPlayer.new()
+	_ocean.bus = AudioMix.SFX
+	_wind.bus = AudioMix.SFX
 	add_child(_ocean)
 	add_child(_wind)
 	_rng.seed = 7741
@@ -113,6 +123,7 @@ func toggle_mute() -> bool:
 func set_muted(value: bool) -> void:
 	muted = value
 	AudioServer.set_bus_mute(0, muted)
+	mute_changed.emit(muted)
 
 
 func _take(sound: String) -> AudioStreamWAV:
@@ -133,7 +144,7 @@ func _process(delta: float) -> void:
 		return
 	if not _ocean.playing:
 		_ocean.stream = _streams["ocean"]
-		_ocean.volume_db = -16.0
+		_ocean.volume_db = OCEAN_DB
 		_ocean.play()
 	# Wind and rain while the camera is inside a storm.
 	var storm: float = 0.0
@@ -151,7 +162,7 @@ func _process(delta: float) -> void:
 			_wind.stream = _streams["wind"]
 			_wind.volume_db = -40.0
 			_wind.play()
-		_wind.volume_db = move_toward(_wind.volume_db, lerpf(-34.0, -10.0, storm), 30.0 * delta)
+		_wind.volume_db = move_toward(_wind.volume_db, lerpf(-36.0, -20.0, storm), 30.0 * delta)
 	elif _wind.playing:
 		_wind.volume_db = move_toward(_wind.volume_db, -50.0, 30.0 * delta)
 		if _wind.volume_db <= -49.0:
@@ -562,32 +573,37 @@ func _ui_hover(rng: RandomNumberGenerator) -> PackedFloat32Array:
 	return buf
 
 
-## A ship's bell struck twice ("ding-ding"): a ship is ready.
+## A ship's bell struck twice ("ding-ding") somewhere across the harbour: a ship is ready.
+## Low, soft-struck and muffled by distance so it sits under music as ambience.
 func _ships_bell(rng: RandomNumberGenerator) -> PackedFloat32Array:
 	var buf: PackedFloat32Array = _buf(2.8)
-	for at: float in [0.0, 0.42]:
-		_noise(rng, buf, at, 0.03, 4000.0, 4000.0, FILTER_BP, 0.6, 0.0003, 0.003, 0.3)
-		_modes(buf, at, 620.0, PackedFloat32Array([0.5, 1.0, 1.183, 1.506, 2.0, 2.514, 2.662, 3.011]),
-			PackedFloat32Array([0.35, 0.6, 0.45, 0.3, 0.55, 0.2, 0.18, 0.12]),
-			PackedFloat32Array([1.6, 1.1, 0.8, 0.6, 0.7, 0.35, 0.3, 0.25]), 1.0)
-	return buf
+	for at: float in [0.0, 0.5]:
+		_noise(rng, buf, at, 0.03, 1800.0, 1800.0, FILTER_BP, 0.6, 0.002, 0.004, 0.08)
+		_modes(buf, at, 410.0, PackedFloat32Array([0.5, 1.0, 1.183, 1.506, 2.0, 2.514]),
+			PackedFloat32Array([0.5, 0.6, 0.35, 0.18, 0.25, 0.06]),
+			PackedFloat32Array([1.6, 1.1, 0.7, 0.45, 0.4, 0.2]), 1.0)
+	_lowpass(buf, 1600.0)
+	return _reverb(buf, 1.2, 1.4, 0.6, 0.35, 0.2)
 
 
-## A bosun's call: the pipe sweeps up, holds with a warble, and falls away. Islands taken.
+## A bosun's call piped on a distant deck: the pipe swells up, holds with a gentle warble,
+## and falls away. Islands taken. Lower, slower-attacked and washed in reverb so it reads as
+## ambience under music rather than a whistle in the ear.
 func _bosuns_call(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var length: float = 1.4
+	var length: float = 1.5
 	var buf: PackedFloat32Array = _buf(length)
 	var phase: float = 0.0
 	for i: int in buf.size():
 		var t: float = float(i) / RATE
-		var f: float = lerpf(1400.0, 2500.0, smoothstep(0.0, 0.18, t))
-		f += 40.0 * sin(TAU * 11.0 * t) * smoothstep(0.2, 0.35, t)
-		f -= 800.0 * smoothstep(0.9, 1.25, t)
+		var f: float = lerpf(820.0, 1250.0, smoothstep(0.0, 0.25, t))
+		f += 18.0 * sin(TAU * 6.0 * t) * smoothstep(0.25, 0.4, t)
+		f -= 350.0 * smoothstep(0.95, 1.35, t)
 		phase += TAU * f / RATE
-		var e: float = clampf(t / 0.04, 0.0, 1.0) * clampf((length - t) / 0.15, 0.0, 1.0)
-		buf[i] += (sin(phase) + 0.15 * sin(2.0 * phase)) * e
-	_noise(rng, buf, 0.0, length, 2500.0, 1700.0, FILTER_BP, 0.3, 0.04, 1000.0, 0.08)
-	return _reverb(buf, 0.4, 0.6, 0.3, 0.12)
+		var e: float = smoothstep(0.0, 0.18, t) * clampf((length - t) / 0.3, 0.0, 1.0)
+		buf[i] += (sin(phase) + 0.08 * sin(2.0 * phase)) * e
+	_noise(rng, buf, 0.0, length, 1300.0, 1000.0, FILTER_BP, 0.3, 0.15, 1000.0, 0.05)
+	_lowpass(buf, 1800.0)
+	return _reverb(buf, 1.2, 1.3, 0.6, 0.35, 0.2)
 
 
 ## The general alarm: an electric gong sounding "bong-bong-bong".
@@ -603,26 +619,24 @@ func _general_alarm(rng: RandomNumberGenerator) -> PackedFloat32Array:
 
 # --- Ambience ---------------------------------------------------------------
 
-## Open sea: a low surge, waves rolling in and washing out, lapping against the hull and
-## a faint hiss of foam.
+## Open sea, heard as a distant bed under the music: a low surge and slow, soft swells rolling
+## in and out. No bright foam hiss or close lapping, and everything is darkened so it never
+## competes with a soundtrack.
 func _ocean_loop(rng: RandomNumberGenerator) -> PackedFloat32Array:
-	var length: float = 12.0
-	var fade: float = 1.5
+	var length: float = 16.0
+	var fade: float = 2.5
 	var buf: PackedFloat32Array = _buf(length + fade)
 	var total: float = length + fade
-	_noise(rng, buf, 0.0, total, 110.0, 110.0, FILTER_LP, 0.9, 0.0, 100000.0, 0.8, 0.6, 0.5)
-	_noise(rng, buf, 0.0, total, 3000.0, 3000.0, FILTER_HP, 0.9, 0.0, 100000.0, 0.08, 0.5, 1.0)
-	for k: int in 8:
-		var dur: float = rng.randf_range(2.0, 3.5)
-		var at: float = rng.randf_range(0.0, total - 1.0)
-		var a: float = rng.randf_range(0.5, 1.0)
+	_noise(rng, buf, 0.0, total, 120.0, 120.0, FILTER_LP, 0.9, 0.0, 100000.0, 0.9, 0.4, 0.3)
+	for k: int in 7:
+		var dur: float = rng.randf_range(3.5, 5.5)
+		var at: float = rng.randf_range(0.0, total - 1.5)
+		var a: float = rng.randf_range(0.35, 0.65)
 		if k % 2 == 0:
-			_noise(rng, buf, at, dur, 300.0, 1800.0, FILTER_BP, 0.9, dur * 0.35, dur * 0.25, a, 0.5, 6.0)
+			_noise(rng, buf, at, dur, 250.0, 900.0, FILTER_BP, 0.9, dur * 0.45, dur * 0.3, a, 0.3, 3.0)
 		else:
-			_noise(rng, buf, at, dur, 1800.0, 400.0, FILTER_BP, 0.9, dur * 0.2, dur * 0.3, a, 0.5, 6.0)
-	for k: int in 20:
-		_noise(rng, buf, rng.randf_range(0.0, total - 0.5), 0.5, 900.0, 600.0, FILTER_BP, 0.8,
-			0.03, 0.08, rng.randf_range(0.2, 0.5))
+			_noise(rng, buf, at, dur, 900.0, 300.0, FILTER_BP, 0.9, dur * 0.3, dur * 0.35, a, 0.3, 3.0)
+	_lowpass(buf, 900.0)
 	return _loop(buf, length, fade)
 
 

@@ -35,6 +35,10 @@ var _starting: bool = false
 ## The title screen shown when the game opens; Start reveals the menu.
 var start_screen: Control = null
 var _menu_root: Control = null
+## The How to Play or Credits page while one is open (MenuPages.build_page), else null.
+var page: Control = null
+## The music / effects volume panel, shown over the menu by the Sound button.
+var sound_overlay: Control = null
 
 
 func _ready() -> void:
@@ -219,7 +223,8 @@ func _build_ui() -> void:
 	_lan_list = VBoxContainer.new()
 	_lan_list.add_theme_constant_override("separation", 4)
 	column.add_child(_lan_list)
-	var quit_row: CenterContainer = CenterContainer.new()
+	column.add_child(_make_rule())
+	var quit_row: HBoxContainer = _make_info_row()
 	column.add_child(quit_row)
 	var quit: Button = Button.new()
 	quit.text = "Quit"
@@ -228,6 +233,23 @@ func _build_ui() -> void:
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	quit_row.add_child(quit)
 	UITheme.liven(self)
+
+
+## How to Play / Credits / Sound buttons in a centred row.
+func _make_info_row() -> HBoxContainer:
+	var row: HBoxContainer = HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 14)
+	for entry: Array in [["How to Play", open_guide, "Controls, rules and the fleet roster"],
+			["Credits", open_credits, "Who made the game and its music"],
+			["Sound", toggle_sound_panel, "Music and effects volume"]]:
+		var button: Button = Button.new()
+		button.text = String(entry[0])
+		button.custom_minimum_size = Vector2(160.0, 40.0)
+		button.tooltip_text = String(entry[2])
+		button.pressed.connect(entry[1] as Callable)
+		row.add_child(button)
+	return row
 
 
 ## Title screen: the game's name over the animated sea and a big Start button.
@@ -262,6 +284,7 @@ func _build_start_screen() -> void:
 	glow.tween_property(start, "modulate", Color(1.25, 1.18, 1.0), 0.9).set_trans(Tween.TRANS_SINE)
 	glow.tween_property(start, "modulate", Color.WHITE, 0.9).set_trans(Tween.TRANS_SINE)
 	start.grab_focus.call_deferred()
+	column.add_child(_make_info_row())
 	var quit_holder: CenterContainer = CenterContainer.new()
 	column.add_child(quit_holder)
 	var quit: Button = Button.new()
@@ -298,8 +321,13 @@ func _make_title() -> Control:
 	title.add_theme_constant_override("outline_size", 12)
 	title.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.6))
 	title.add_theme_constant_override("shadow_offset_y", 5)
-	title.set_anchors_preset(Control.PRESET_FULL_RECT)
+	title.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	holder.add_child(title)
+	# The label is made while the holder is still 0 wide, so it grows to its text width and
+	# keeps that as an offset, pushing the centred title right. Re-fit it once laid out.
+	holder.resized.connect(func() -> void:
+		title.offset_left = 0.0
+		title.offset_right = 0.0)
 	var bob: Tween = title.create_tween().set_loops()
 	bob.tween_property(title, "position:y", -4.0, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	bob.tween_property(title, "position:y", 4.0, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -313,6 +341,75 @@ func _make_rule() -> Control:
 	rule.custom_minimum_size = Vector2(0.0, 2.0)
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return rule
+
+
+## Opens the How to Play page.
+func open_guide() -> void:
+	_open_page("How to Play", MenuPages.guide_bbcode())
+
+
+## Opens the Credits page.
+func open_credits() -> void:
+	_open_page("Credits", MenuPages.credits_bbcode())
+
+
+func _open_page(title: String, bbcode: String) -> void:
+	close_page()
+	_hide_sound_panel()
+	page = MenuPages.build_page(title, bbcode, close_page)
+	add_child(page)
+	page.modulate.a = 0.0
+	page.create_tween().tween_property(page, "modulate:a", 1.0, 0.2)
+
+
+## Closes the How to Play or Credits page.
+func close_page() -> void:
+	if page == null:
+		return
+	page.queue_free()
+	page = null
+	if start_screen == null and not size_buttons.is_empty():
+		size_buttons[int(GameSettings.map_size)].grab_focus.call_deferred()
+
+
+## Shows or hides the music / effects volume panel.
+func toggle_sound_panel() -> void:
+	if sound_overlay != null:
+		_hide_sound_panel()
+		return
+	sound_overlay = Control.new()
+	sound_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sound_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	var dim: ColorRect = ColorRect.new()
+	dim.color = Color(0.0, 0.02, 0.05, 0.6)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sound_overlay.add_child(dim)
+	var center: CenterContainer = CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sound_overlay.add_child(center)
+	var panel: SoundPanel = SoundPanel.new()
+	panel.closed.connect(_hide_sound_panel)
+	center.add_child(panel)
+	add_child(sound_overlay)
+
+
+func _hide_sound_panel() -> void:
+	if sound_overlay != null:
+		sound_overlay.queue_free()
+		sound_overlay = null
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	var key: InputEventKey = event as InputEventKey
+	if key == null or not key.pressed or key.echo or key.keycode != KEY_ESCAPE:
+		return
+	if page != null:
+		close_page()
+		get_viewport().set_input_as_handled()
+	elif sound_overlay != null:
+		_hide_sound_panel()
+		get_viewport().set_input_as_handled()
 
 
 func select_difficulty(level: GameSettings.Difficulty) -> void:
